@@ -1,0 +1,1123 @@
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  Dimensions,
+  Modal,
+  FlatList,
+  Alert,
+  TextInput,
+} from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
+import { usePropertyStore } from '../../src/store/propertyStore';
+import { mockUsers } from '../../src/data/mockData';
+import { Badge } from '../../src/components/Badge';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+export default function PropertyDetailScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+
+  const {
+    properties,
+    isWishlisted,
+    toggleWishlist,
+    bookTour,
+    rentProperty,
+  } = usePropertyStore();
+
+  const property = properties.find((p) => p.id === id) || properties[0];
+  const wishlisted = isWishlisted(property.id);
+
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [isPhotoViewerOpen, setIsPhotoViewerOpen] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [showDescriptionMore, setShowDescriptionMore] = useState(false);
+
+  // Modals
+  const [isTourModalOpen, setIsTourModalOpen] = useState(false);
+  const [tourDate, setTourDate] = useState('Tomorrow, 2:00 PM');
+  const [tourNote, setTourNote] = useState('');
+  const [tourBooked, setTourBooked] = useState(false);
+
+  const [isRentModalOpen, setIsRentModalOpen] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'mpesa' | 'card'>('mpesa');
+  const [mpesaNumber, setMpesaNumber] = useState('254712345678');
+  const [rentProcessing, setRentProcessing] = useState(false);
+  const [rentSuccess, setRentSuccess] = useState(false);
+
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+
+  const landlord = mockUsers.find((u) => u.id === property.landlord_id) || mockUsers[2];
+  const hunter = mockUsers.find((u) => u.id === property.hunter_id) || mockUsers[1];
+
+  const formatPrice = (price: number) => {
+    return `KES ${price.toLocaleString()}`;
+  };
+
+  const getAmenityIcon = (amenity: string): any => {
+    const lower = amenity.toLowerCase();
+    if (lower.includes('pool')) return 'water-outline';
+    if (lower.includes('security')) return 'shield-checkmark-outline';
+    if (lower.includes('parking')) return 'car-outline';
+    if (lower.includes('wifi') || lower.includes('wi-fi')) return 'wifi-outline';
+    if (lower.includes('gym')) return 'fitness-outline';
+    if (lower.includes('balcony')) return 'eye-outline';
+    if (lower.includes('garden')) return 'leaf-outline';
+    if (lower.includes('elevator')) return 'hardware-chip-outline';
+    if (lower.includes('dsq')) return 'home-outline';
+    if (lower.includes('borehole')) return 'water-outline';
+    if (lower.includes('rooftop')) return 'sunny-outline';
+    if (lower.includes('smart')) return 'phone-portrait-outline';
+    return 'checkmark-circle-outline';
+  };
+
+  const handleShare = () => {
+    Alert.alert('Share Property', `Link to "${property.title}" copied to clipboard!`);
+  };
+
+  const handleConfirmTour = () => {
+    bookTour(property.id, tourDate, tourNote);
+    setTourBooked(true);
+    setTimeout(() => {
+      setTourBooked(false);
+      setIsTourModalOpen(false);
+      Alert.alert(
+        'Tour Scheduled!',
+        `Your viewing request for ${property.title} on ${tourDate} has been confirmed. The landlord/hunter will meet you at the property.`
+      );
+    }, 800);
+  };
+
+  const handleConfirmRent = () => {
+    setRentProcessing(true);
+    setTimeout(() => {
+      const deposit = property.price;
+      const total = property.price + deposit + 1500; // Rent + Deposit + Escrow fee
+      rentProperty(property.id, total, `Paid via ${paymentMethod.toUpperCase()}`);
+      setRentProcessing(false);
+      setRentSuccess(true);
+      setTimeout(() => {
+        setRentSuccess(false);
+        setIsRentModalOpen(false);
+        Alert.alert(
+          'Rent Escrow Activated!',
+          `Congratulations! Your payment for "${property.title}" is held safely in Home Escrow. You can inspect the keys upon move-in.`
+        );
+      }, 1000);
+    }, 1200);
+  };
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Top Header Bar */}
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          style={styles.circleButton}
+          onPress={() => router.back()}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="arrow-back" size={22} color={Colors.deepCocoa} />
+        </TouchableOpacity>
+        <Text style={styles.topBarTitle} numberOfLines={1}>
+          {property.title}
+        </Text>
+        <View style={styles.topRightButtons}>
+          <TouchableOpacity
+            style={styles.circleButton}
+            onPress={handleShare}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="share-outline" size={20} color={Colors.deepCocoa} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.circleButton, { marginLeft: Spacing.xs }]}
+            onPress={() => toggleWishlist(property.id)}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name={wishlisted ? 'heart' : 'heart-outline'}
+              size={22}
+              color={wishlisted ? Colors.matteClay : Colors.deepCocoa}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* Main Image Carousel */}
+        <View style={styles.carouselContainer}>
+          <FlatList
+            horizontal
+            pagingEnabled
+            data={property.images}
+            keyExtractor={(_, index) => index.toString()}
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={(e) => {
+              const index = Math.round(
+                e.nativeEvent.contentOffset.x / SCREEN_WIDTH
+              );
+              setActiveImageIndex(index);
+            }}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                activeOpacity={0.95}
+                onPress={() => {
+                  setSelectedPhoto(item);
+                  setIsPhotoViewerOpen(true);
+                }}
+              >
+                <Image
+                  source={{ uri: item }}
+                  style={styles.carouselImage}
+                  contentFit="cover"
+                  transition={200}
+                />
+              </TouchableOpacity>
+            )}
+          />
+
+          {/* Page Dots Indicator */}
+          {property.images.length > 1 && (
+            <View style={styles.paginationBadge}>
+              <Text style={styles.paginationText}>
+                {activeImageIndex + 1} / {property.images.length}
+              </Text>
+            </View>
+          )}
+
+          {/* Verified Badge Overlay */}
+          {property.is_verified && (
+            <View style={styles.verifiedBadgePos}>
+              <Badge label="Verified by Hunter" variant="verified" />
+            </View>
+          )}
+
+          {/* Status Badge Overlay */}
+          <View style={styles.statusBadgePos}>
+            <Badge
+              label={property.status === 'Available' ? 'Available Now' : 'Rented'}
+              variant={property.status === 'Available' ? 'success' : 'pending'}
+            />
+          </View>
+        </View>
+
+        {/* Title, Price & Rating Section */}
+        <View style={styles.mainInfoSection}>
+          <View style={styles.titlePriceRow}>
+            <Text style={styles.propertyTitle}>{property.title}</Text>
+            <View style={styles.priceContainer}>
+              <Text style={styles.priceAmount}>{formatPrice(property.price)}</Text>
+              <Text style={styles.pricePeriod}>/month</Text>
+            </View>
+          </View>
+
+          {/* Location & Rating */}
+          <View style={styles.locationRatingRow}>
+            <View style={styles.locationContainer}>
+              <Ionicons name="location-outline" size={18} color={Colors.matteClay} />
+              <Text style={styles.locationText}>{property.location}</Text>
+            </View>
+            <View style={styles.ratingBadge}>
+              <Ionicons name="star" size={14} color={Colors.deepCocoa} />
+              <Text style={styles.ratingText}> {property.rating}</Text>
+              <Text style={styles.reviewCountText}> ({property.review_count})</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Key Features Specs Cards */}
+        <View style={styles.specsGrid}>
+          <View style={styles.specCard}>
+            <Ionicons name="bed-outline" size={24} color={Colors.matteClay} />
+            <Text style={styles.specValue}>{property.bedrooms} {property.bedrooms === 1 ? 'Bed' : 'Beds'}</Text>
+            <Text style={styles.specLabel}>Bedrooms</Text>
+          </View>
+          <View style={styles.specCard}>
+            <Ionicons name="water-outline" size={24} color={Colors.matteClay} />
+            <Text style={styles.specValue}>{property.bathrooms} {property.bathrooms === 1 ? 'Bath' : 'Baths'}</Text>
+            <Text style={styles.specLabel}>Bathrooms</Text>
+          </View>
+          <View style={styles.specCard}>
+            <Ionicons name="home-outline" size={24} color={Colors.matteClay} />
+            <Text style={styles.specValue}>Furnished</Text>
+            <Text style={styles.specLabel}>Type</Text>
+          </View>
+          <View style={styles.specCard}>
+            <Ionicons name="shield-checkmark-outline" size={24} color={Colors.matteClay} />
+            <Text style={styles.specValue}>Verified</Text>
+            <Text style={styles.specLabel}>Escrow Protection</Text>
+          </View>
+        </View>
+
+        {/* Description Section */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionHeading}>About this Home</Text>
+          <Text
+            style={styles.descriptionText}
+            numberOfLines={showDescriptionMore ? undefined : 3}
+          >
+            {property.description}
+          </Text>
+          {property.description.length > 100 && (
+            <TouchableOpacity
+              onPress={() => setShowDescriptionMore(!showDescriptionMore)}
+              style={styles.readMoreBtn}
+            >
+              <Text style={styles.readMoreText}>
+                {showDescriptionMore ? 'Show less' : 'Read more'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Amenities Section */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionHeading}>Amenities & Facilities</Text>
+          <View style={styles.amenitiesGrid}>
+            {property.amenities.map((item) => (
+              <View key={item} style={styles.amenityItem}>
+                <View style={styles.amenityIconBg}>
+                  <Ionicons name={getAmenityIcon(item)} size={20} color={Colors.matteClay} />
+                </View>
+                <Text style={styles.amenityLabel}>{item}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* Location Map Preview Section */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionHeading}>Location & Neighborhood</Text>
+          <View style={styles.mapCard}>
+            <Image
+              source={{ uri: 'https://images.unsplash.com/photo-1524661135-423995f22d0b?w=800' }}
+              style={styles.mapImage}
+              contentFit="cover"
+            />
+            <View style={styles.mapOverlay}>
+              <View style={styles.mapPinContainer}>
+                <Ionicons name="location-sharp" size={28} color={Colors.matteClay} />
+              </View>
+              <Text style={styles.mapLocationText}>{property.location}</Text>
+              <Text style={styles.mapSubtext}>Safe neighborhood with access to transport & shops</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Host & Hunter Contacts */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionHeading}>Listed & Sourced By</Text>
+          
+          {/* Landlord Card */}
+          <View style={styles.contactCard}>
+            <Image
+              source={{ uri: landlord.avatar_url || 'https://i.pravatar.cc/150?img=12' }}
+              style={styles.contactAvatar}
+            />
+            <View style={styles.contactDetails}>
+              <Text style={styles.contactName}>{landlord.display_name}</Text>
+              <Text style={styles.contactRole}>Property Landlord • {landlord.location}</Text>
+              <Text style={styles.contactBio}>{landlord.bio}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.contactActionBtn}
+              onPress={() => setIsContactModalOpen(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={20} color={Colors.matteClay} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Hunter Sourced Info (If exists) */}
+          {hunter && property.is_verified && (
+            <View style={[styles.contactCard, { marginTop: Spacing.sm, backgroundColor: '#F9F6F0' }]}>
+              <Image
+                source={{ uri: hunter.avatar_url || 'https://i.pravatar.cc/150?img=5' }}
+                style={styles.contactAvatar}
+              />
+              <View style={styles.contactDetails}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.contactName}>{hunter.display_name}</Text>
+                  <Ionicons name="checkmark-circle" size={16} color={Colors.badgeVerified} style={{ marginLeft: 4 }} />
+                </View>
+                <Text style={styles.contactRole}>Verified House Hunter</Text>
+                <Text style={styles.contactBio}>Physically inspected & confirmed listing details</Text>
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* Bottom padding for floating bar */}
+        <View style={{ height: 100 }} />
+      </ScrollView>
+
+      {/* Floating Action Bar */}
+      <View style={styles.bottomActionBar}>
+        <TouchableOpacity
+          style={styles.tourButton}
+          onPress={() => setIsTourModalOpen(true)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="calendar-outline" size={20} color={Colors.deepCocoa} />
+          <Text style={styles.tourButtonText}>Schedule Tour</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.rentButton,
+            property.status === 'Rented' && styles.rentButtonDisabled,
+          ]}
+          disabled={property.status === 'Rented'}
+          onPress={() => setIsRentModalOpen(true)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="key-outline" size={20} color={Colors.white} />
+          <Text style={styles.rentButtonText}>
+            {property.status === 'Rented' ? 'Already Rented' : 'Rent with Escrow'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* PHOTO VIEWER FULLSCREEN MODAL */}
+      <Modal visible={isPhotoViewerOpen} transparent animationType="fade">
+        <View style={styles.photoModalBg}>
+          <TouchableOpacity
+            style={styles.photoModalClose}
+            onPress={() => setIsPhotoViewerOpen(false)}
+          >
+            <Ionicons name="close" size={28} color={Colors.white} />
+          </TouchableOpacity>
+          {selectedPhoto && (
+            <Image
+              source={{ uri: selectedPhoto }}
+              style={styles.fullPhoto}
+              contentFit="contain"
+            />
+          )}
+        </View>
+      </Modal>
+
+      {/* SCHEDULE TOUR MODAL */}
+      <Modal visible={isTourModalOpen} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Schedule Property Viewing</Text>
+              <TouchableOpacity onPress={() => setIsTourModalOpen(false)}>
+                <Ionicons name="close" size={24} color={Colors.deepCocoa} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalSubtext}>
+              Pick your preferred date and time to view "{property.title}".
+            </Text>
+
+            <Text style={styles.inputLabel}>Preferred Date & Time</Text>
+            <View style={styles.datePickerContainer}>
+              {['Tomorrow, 10:00 AM', 'Tomorrow, 2:00 PM', 'Saturday, 11:00 AM', 'Sunday, 3:00 PM'].map((dt) => (
+                <TouchableOpacity
+                  key={dt}
+                  style={[
+                    styles.dateOption,
+                    tourDate === dt && styles.dateOptionActive,
+                  ]}
+                  onPress={() => setTourDate(dt)}
+                >
+                  <Text style={[styles.dateOptionText, tourDate === dt && styles.dateOptionTextActive]}>
+                    {dt}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.inputLabel}>Notes for Landlord (Optional)</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="e.g. Asking about parking space or move-in timeline..."
+              placeholderTextColor={Colors.textTertiary}
+              value={tourNote}
+              onChangeText={setTourNote}
+            />
+
+            <TouchableOpacity
+              style={styles.confirmBtn}
+              onPress={handleConfirmTour}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.confirmBtnText}>
+                {tourBooked ? 'Confirming...' : 'Confirm Viewing Request'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* RENT WITH ESCROW MODAL */}
+      <Modal visible={isRentModalOpen} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Rent with Escrow Protection</Text>
+              <TouchableOpacity onPress={() => setIsRentModalOpen(false)}>
+                <Ionicons name="close" size={24} color={Colors.deepCocoa} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Price Breakdown */}
+            <View style={styles.breakdownCard}>
+              <View style={styles.breakdownRow}>
+                <Text style={styles.breakdownLabel}>1st Month Rent</Text>
+                <Text style={styles.breakdownValue}>{formatPrice(property.price)}</Text>
+              </View>
+              <View style={styles.breakdownRow}>
+                <Text style={styles.breakdownLabel}>Security Deposit</Text>
+                <Text style={styles.breakdownValue}>{formatPrice(property.price)}</Text>
+              </View>
+              <View style={styles.breakdownRow}>
+                <Text style={styles.breakdownLabel}>Escrow & Inspection Fee</Text>
+                <Text style={styles.breakdownValue}>KES 1,500</Text>
+              </View>
+              <View style={[styles.breakdownRow, styles.breakdownTotalRow]}>
+                <Text style={styles.breakdownTotalLabel}>Total Escrow Deposit</Text>
+                <Text style={styles.breakdownTotalValue}>
+                  {formatPrice(property.price * 2 + 1500)}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.escrowNotice}>
+              <Ionicons name="shield-checkmark" size={18} color={Colors.badgeVerified} />
+              <Text style={styles.escrowNoticeText}>
+                Your funds remain safely locked in Escrow until you inspect the home and receive your keys.
+              </Text>
+            </View>
+
+            {/* Payment Method Selector */}
+            <Text style={styles.inputLabel}>Select Payment Method</Text>
+            <View style={styles.paymentMethodRow}>
+              <TouchableOpacity
+                style={[
+                  styles.paymentMethodOption,
+                  paymentMethod === 'mpesa' && styles.paymentMethodActive,
+                ]}
+                onPress={() => setPaymentMethod('mpesa')}
+              >
+                <Ionicons name="phone-portrait-outline" size={20} color={paymentMethod === 'mpesa' ? Colors.matteClay : Colors.deepCocoa} />
+                <Text style={[styles.paymentMethodText, paymentMethod === 'mpesa' && styles.paymentMethodTextActive]}>M-PESA</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.paymentMethodOption,
+                  paymentMethod === 'card' && styles.paymentMethodActive,
+                ]}
+                onPress={() => setPaymentMethod('card')}
+              >
+                <Ionicons name="card-outline" size={20} color={paymentMethod === 'card' ? Colors.matteClay : Colors.deepCocoa} />
+                <Text style={[styles.paymentMethodText, paymentMethod === 'card' && styles.paymentMethodTextActive]}>Card / Bank</Text>
+              </TouchableOpacity>
+            </View>
+
+            {paymentMethod === 'mpesa' && (
+              <View style={{ marginTop: Spacing.sm }}>
+                <Text style={styles.inputLabel}>M-Pesa Phone Number</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={mpesaNumber}
+                  onChangeText={setMpesaNumber}
+                  keyboardType="phone-pad"
+                />
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={styles.confirmBtn}
+              onPress={handleConfirmRent}
+              disabled={rentProcessing}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.confirmBtnText}>
+                {rentProcessing ? 'Processing Payment...' : rentSuccess ? 'Escrow Activated!' : 'Deposit into Escrow'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* CONTACT MODAL */}
+      <Modal visible={isContactModalOpen} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Contact Landlord</Text>
+              <TouchableOpacity onPress={() => setIsContactModalOpen(false)}>
+                <Ionicons name="close" size={24} color={Colors.deepCocoa} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.contactModalUser}>
+              <Image
+                source={{ uri: landlord.avatar_url || 'https://i.pravatar.cc/150?img=12' }}
+                style={styles.contactAvatar}
+              />
+              <View style={{ marginLeft: Spacing.md }}>
+                <Text style={styles.contactName}>{landlord.display_name}</Text>
+                <Text style={styles.contactRole}>{landlord.phone}</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.confirmBtn, { backgroundColor: Colors.badgeSuccess, marginBottom: Spacing.sm }]}
+              onPress={() => {
+                setIsContactModalOpen(false);
+                Alert.alert('Phone Call', `Calling ${landlord.display_name} at ${landlord.phone}...`);
+              }}
+            >
+              <Ionicons name="call" size={18} color={Colors.white} style={{ marginRight: 8 }} />
+              <Text style={styles.confirmBtnText}>Call Landlord Directly</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.confirmBtn, { backgroundColor: Colors.matteClay }]}
+              onPress={() => {
+                setIsContactModalOpen(false);
+                router.push('/(client)/messages');
+              }}
+            >
+              <Ionicons name="chatbubble" size={18} color={Colors.white} style={{ marginRight: 8 }} />
+              <Text style={styles.confirmBtnText}>Send Message in App</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.softCream,
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    backgroundColor: Colors.softCream,
+    zIndex: 10,
+  },
+  topBarTitle: {
+    flex: 1,
+    fontSize: Typography.body,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+    marginHorizontal: Spacing.md,
+  },
+  circleButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: Colors.white,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...Shadows.card,
+  },
+  topRightButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: Spacing.xl,
+  },
+  carouselContainer: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_WIDTH * 0.7,
+    position: 'relative',
+  },
+  carouselImage: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_WIDTH * 0.7,
+  },
+  paginationBadge: {
+    position: 'absolute',
+    bottom: Spacing.md,
+    right: Spacing.lg,
+    backgroundColor: 'rgba(61, 35, 20, 0.75)',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.pill,
+  },
+  paginationText: {
+    color: Colors.white,
+    fontSize: Typography.tiny,
+    fontWeight: Typography.semiBold,
+  },
+  verifiedBadgePos: {
+    position: 'absolute',
+    top: Spacing.md,
+    left: Spacing.lg,
+  },
+  statusBadgePos: {
+    position: 'absolute',
+    bottom: Spacing.md,
+    left: Spacing.lg,
+  },
+  mainInfoSection: {
+    padding: Spacing.lg,
+    backgroundColor: Colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.divider,
+  },
+  titlePriceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  propertyTitle: {
+    fontSize: Typography.h2,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+    flex: 1,
+    marginRight: Spacing.md,
+  },
+  priceContainer: {
+    alignItems: 'flex-end',
+  },
+  priceAmount: {
+    fontSize: Typography.h2,
+    fontWeight: Typography.bold,
+    color: Colors.matteClay,
+  },
+  pricePeriod: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+  },
+  locationRatingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: Spacing.md,
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  locationText: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    marginLeft: 4,
+  },
+  ratingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.warmAlmond,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.sm,
+  },
+  ratingText: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+  },
+  reviewCountText: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+  },
+  specsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: Spacing.lg,
+    backgroundColor: Colors.white,
+    marginTop: Spacing.sm,
+  },
+  specCard: {
+    alignItems: 'center',
+    flex: 1,
+    paddingVertical: Spacing.sm,
+    borderRightWidth: 1,
+    borderRightColor: Colors.divider,
+  },
+  specValue: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+    marginTop: Spacing.xs,
+  },
+  specLabel: {
+    fontSize: Typography.tiny,
+    color: Colors.textTertiary,
+    marginTop: 2,
+  },
+  sectionContainer: {
+    marginTop: Spacing.sm,
+    backgroundColor: Colors.white,
+    padding: Spacing.lg,
+  },
+  sectionHeading: {
+    fontSize: Typography.h3,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+    marginBottom: Spacing.md,
+  },
+  descriptionText: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    lineHeight: 22,
+  },
+  readMoreBtn: {
+    marginTop: Spacing.sm,
+  },
+  readMoreText: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+    color: Colors.matteClay,
+  },
+  amenitiesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.md,
+  },
+  amenityItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '45%',
+    marginBottom: Spacing.xs,
+  },
+  amenityIconBg: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: Colors.warmAlmond,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: Spacing.sm,
+  },
+  amenityLabel: {
+    fontSize: Typography.bodySmall,
+    color: Colors.deepCocoa,
+    fontWeight: Typography.medium,
+  },
+  mapCard: {
+    borderRadius: BorderRadius.lg,
+    overflow: 'hidden',
+    height: 160,
+    position: 'relative',
+  },
+  mapImage: {
+    width: '100%',
+    height: '100%',
+  },
+  mapOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(61, 35, 20, 0.85)',
+    padding: Spacing.md,
+  },
+  mapPinContainer: {
+    position: 'absolute',
+    top: -20,
+    left: '50%',
+    marginLeft: -14,
+  },
+  mapLocationText: {
+    color: Colors.white,
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+  },
+  mapSubtext: {
+    color: Colors.warmAlmond,
+    fontSize: Typography.caption,
+    marginTop: 2,
+  },
+  contactCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.softCream,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+  },
+  contactAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+  },
+  contactDetails: {
+    flex: 1,
+    marginLeft: Spacing.md,
+  },
+  contactName: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+  },
+  contactRole: {
+    fontSize: Typography.caption,
+    color: Colors.matteClay,
+    marginTop: 2,
+  },
+  contactBio: {
+    fontSize: Typography.tiny,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  contactActionBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.white,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...Shadows.card,
+  },
+  bottomActionBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: Colors.white,
+    flexDirection: 'row',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.divider,
+    gap: Spacing.md,
+    ...Shadows.bottomTab,
+  },
+  tourButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    borderWidth: 1.5,
+    borderColor: Colors.deepCocoa,
+    borderRadius: BorderRadius.pill,
+    paddingVertical: Spacing.md,
+  },
+  tourButtonText: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+  },
+  rentButton: {
+    flex: 1.3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.matteClay,
+    borderRadius: BorderRadius.pill,
+    paddingVertical: Spacing.md,
+  },
+  rentButtonDisabled: {
+    backgroundColor: Colors.textTertiary,
+  },
+  rentButtonText: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+    color: Colors.white,
+  },
+  photoModalBg: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoModalClose: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+  },
+  fullPhoto: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT * 0.8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+    maxHeight: SCREEN_HEIGHT * 0.85,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  modalTitle: {
+    fontSize: Typography.h3,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+  },
+  modalSubtext: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.lg,
+  },
+  inputLabel: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.semiBold,
+    color: Colors.deepCocoa,
+    marginBottom: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  datePickerContainer: {
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  dateOption: {
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.divider,
+    backgroundColor: Colors.softCream,
+  },
+  dateOptionActive: {
+    borderColor: Colors.matteClay,
+    backgroundColor: '#FAF5EF',
+  },
+  dateOptionText: {
+    fontSize: Typography.bodySmall,
+    color: Colors.deepCocoa,
+  },
+  dateOptionTextActive: {
+    fontWeight: Typography.bold,
+    color: Colors.matteClay,
+  },
+  textInput: {
+    backgroundColor: Colors.softCream,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    fontSize: Typography.bodySmall,
+    color: Colors.deepCocoa,
+    marginBottom: Spacing.lg,
+  },
+  confirmBtn: {
+    backgroundColor: Colors.matteClay,
+    borderRadius: BorderRadius.pill,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  confirmBtnText: {
+    color: Colors.white,
+    fontSize: Typography.body,
+    fontWeight: Typography.bold,
+  },
+  breakdownCard: {
+    backgroundColor: Colors.softCream,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.xs,
+  },
+  breakdownLabel: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+  },
+  breakdownValue: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.semiBold,
+    color: Colors.deepCocoa,
+  },
+  breakdownTotalRow: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.divider,
+    paddingTop: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  breakdownTotalLabel: {
+    fontSize: Typography.body,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+  },
+  breakdownTotalValue: {
+    fontSize: Typography.body,
+    fontWeight: Typography.bold,
+    color: Colors.matteClay,
+  },
+  escrowNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F5E9',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.lg,
+  },
+  escrowNoticeText: {
+    fontSize: Typography.caption,
+    color: '#2E7D32',
+    marginLeft: Spacing.sm,
+    flex: 1,
+    lineHeight: 18,
+  },
+  paymentMethodRow: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  paymentMethodOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.divider,
+    backgroundColor: Colors.white,
+    gap: Spacing.xs,
+  },
+  paymentMethodActive: {
+    borderColor: Colors.matteClay,
+    backgroundColor: '#FAF5EF',
+  },
+  paymentMethodText: {
+    fontSize: Typography.bodySmall,
+    color: Colors.deepCocoa,
+    fontWeight: Typography.medium,
+  },
+  paymentMethodTextActive: {
+    fontWeight: Typography.bold,
+    color: Colors.matteClay,
+  },
+  contactModalUser: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.xl,
+  },
+});

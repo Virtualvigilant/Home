@@ -12,16 +12,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
 import { useAuthStore } from '../../src/store/authStore';
-import { UserRole } from '../../src/lib/database.types';
 import { useRouter } from 'expo-router';
-
-const roleOptions: { role: UserRole; label: string; icon: string }[] = [
-  { role: 'client', label: 'Client', icon: 'person-outline' },
-  { role: 'hunter', label: 'House Hunter', icon: 'search-outline' },
-  { role: 'landlord', label: 'Landlord', icon: 'business-outline' },
-  { role: 'retailer', label: 'Retailer', icon: 'storefront-outline' },
-  { role: 'mover', label: 'Mover', icon: 'car-outline' },
-];
 
 const menuItems = [
   { icon: 'shield-checkmark-outline', label: 'Verification', badge: 'Verified' },
@@ -33,28 +24,12 @@ const menuItems = [
 ];
 
 export default function ProfileScreen() {
-  const { user, role, setRole } = useAuthStore();
+  const { user, role, signOut } = useAuthStore();
   const router = useRouter();
 
-  const handleRoleSwitch = (newRole: UserRole) => {
-    setRole(newRole);
-    // Navigate to the new role's home screen
-    switch (newRole) {
-      case 'hunter':
-        router.replace('/(hunter)/leads');
-        break;
-      case 'landlord':
-        router.replace('/(landlord)/portfolio');
-        break;
-      case 'retailer':
-        router.replace('/(retailer)/catalog');
-        break;
-      case 'mover':
-        router.replace('/(mover)/jobs');
-        break;
-      default:
-        router.replace('/(client)/(explore)/homes');
-    }
+  const handleSignOut = async () => {
+    await signOut();
+    router.replace('/(auth)/login');
   };
 
   return (
@@ -79,42 +54,25 @@ export default function ProfileScreen() {
               <Text style={styles.roleText}>{role.charAt(0).toUpperCase() + role.slice(1)}</Text>
             </View>
           </View>
-          <TouchableOpacity activeOpacity={0.7}>
-            <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
-          </TouchableOpacity>
         </View>
 
-        {/* Role Switcher */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Switch Role</Text>
-          <View style={styles.roleGrid}>
-            {roleOptions.map((option) => (
-              <TouchableOpacity
-                key={option.role}
-                style={[
-                  styles.roleButton,
-                  role === option.role && styles.roleButtonActive,
-                ]}
-                onPress={() => handleRoleSwitch(option.role)}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={option.icon as any}
-                  size={22}
-                  color={role === option.role ? Colors.white : Colors.deepCocoa}
-                />
-                <Text
-                  style={[
-                    styles.roleButtonText,
-                    role === option.role && styles.roleButtonTextActive,
-                  ]}
-                >
-                  {option.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+        {/* Admin Shortcut Banner if user is Admin */}
+        {role === 'admin' && (
+          <TouchableOpacity
+            style={styles.adminBanner}
+            onPress={() => router.push('/(admin)/dashboard')}
+            activeOpacity={0.85}
+          >
+            <View style={styles.adminBannerIconBg}>
+              <Ionicons name="shield-checkmark" size={20} color={Colors.white} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.adminBannerTitle}>Admin Control Center</Text>
+              <Text style={styles.adminBannerSub}>Manage user roles & pending approvals</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.deepCocoa} />
+          </TouchableOpacity>
+        )}
 
         {/* Menu Items */}
         <View style={styles.section}>
@@ -126,6 +84,7 @@ export default function ProfileScreen() {
                 index === menuItems.length - 1 && styles.menuItemLast,
               ]}
               activeOpacity={0.7}
+              onPress={() => Alert.alert(item.label, `${item.label} preferences & settings.`)}
             >
               <Ionicons name={item.icon as any} size={22} color={Colors.deepCocoa} />
               <Text style={styles.menuLabel}>{item.label}</Text>
@@ -140,7 +99,11 @@ export default function ProfileScreen() {
         </View>
 
         {/* Sign Out */}
-        <TouchableOpacity style={styles.signOutButton} activeOpacity={0.7}>
+        <TouchableOpacity
+          style={styles.signOutButton}
+          onPress={handleSignOut}
+          activeOpacity={0.7}
+        >
           <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
 
@@ -180,8 +143,8 @@ const styles = StyleSheet.create({
     borderRadius: 28,
   },
   userInfo: {
-    flex: 1,
     marginLeft: Spacing.md,
+    flex: 1,
   },
   userName: {
     fontSize: Typography.body,
@@ -206,45 +169,39 @@ const styles = StyleSheet.create({
     fontWeight: Typography.semiBold,
     color: Colors.white,
   },
+  adminBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    borderWidth: 1.5,
+    borderColor: '#FFE0B2',
+    borderRadius: BorderRadius.lg,
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.md,
+    padding: Spacing.md,
+    gap: Spacing.md,
+  },
+  adminBannerIconBg: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.matteClay,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  adminBannerTitle: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+  },
+  adminBannerSub: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
   section: {
     marginTop: Spacing.xl,
     marginHorizontal: Spacing.lg,
-  },
-  sectionTitle: {
-    fontSize: Typography.bodySmall,
-    fontWeight: Typography.semiBold,
-    color: Colors.textSecondary,
-    marginBottom: Spacing.md,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  roleGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  roleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.pill,
-    borderWidth: 1.5,
-    borderColor: Colors.warmAlmond,
-    backgroundColor: Colors.white,
-  },
-  roleButtonActive: {
-    backgroundColor: Colors.matteClay,
-    borderColor: Colors.matteClay,
-  },
-  roleButtonText: {
-    fontSize: Typography.caption,
-    fontWeight: Typography.medium,
-    color: Colors.deepCocoa,
-  },
-  roleButtonTextActive: {
-    color: Colors.white,
   },
   menuItem: {
     flexDirection: 'row',

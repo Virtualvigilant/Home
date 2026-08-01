@@ -3,10 +3,16 @@ import { Redirect } from 'expo-router';
 import { useAuthStore } from '../src/store/authStore';
 
 export default function Index() {
-  const role = useAuthStore((state) => state.role);
+  const { isAuthenticated, role } = useAuthStore();
+
+  if (!isAuthenticated) {
+    return <Redirect href="/(auth)/login" />;
+  }
 
   // Redirect to the appropriate role-based layout
   switch (role) {
+    case 'admin':
+      return <Redirect href="/(admin)/dashboard" />;
     case 'hunter':
       return <Redirect href="/(hunter)/leads" />;
     case 'landlord':

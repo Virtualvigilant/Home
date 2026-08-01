@@ -1,6 +1,6 @@
 // Supabase database types for the Home App
 
-export type UserRole = 'client' | 'hunter' | 'landlord' | 'retailer' | 'mover';
+export type UserRole = 'client' | 'hunter' | 'landlord' | 'retailer' | 'mover' | 'admin';
 
 export type PropertyStatus = 'Available' | 'Pending_Escrow' | 'Rented';
 
@@ -12,6 +12,8 @@ export type LeadStatus = 'New' | 'Verified' | 'Booked' | 'Expired';
 
 export type ServiceType = 'Mover' | 'Cleaner' | 'Furniture_Bundle' | 'Setup';
 
+export type ApprovalStatus = 'none' | 'pending' | 'approved' | 'rejected';
+
 export interface Profile {
   id: string;
   email: string;
@@ -19,6 +21,8 @@ export interface Profile {
   avatar_url: string | null;
   phone: string | null;
   role: UserRole;
+  requested_role?: UserRole | null;
+  role_approval_status?: ApprovalStatus;
   verification_status: boolean;
   location: string | null;
   city: string | null;

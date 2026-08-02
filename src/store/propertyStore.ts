@@ -1,12 +1,16 @@
 import { create } from 'zustand';
 import { Property, HunterLead, Booking } from '../lib/database.types';
-import { mockProperties, mockHunterLeads } from '../data/mockData';
+import { supabase } from '../lib/supabase';
 
 interface PropertyState {
   properties: Property[];
   wishlistIds: string[];
   hunterLeads: HunterLead[];
   bookings: Booking[];
+  loading: boolean;
+  
+  // Data fetching
+  fetchProperties: () => Promise<void>;
   
   // Wishlist actions
   toggleWishlist: (propertyId: string) => void;
@@ -14,8 +18,8 @@ interface PropertyState {
 
   // Property management actions
   getPropertyById: (id: string) => Property | undefined;
-  addProperty: (property: Omit<Property, 'id' | 'created_at' | 'updated_at'>) => Property;
-  updatePropertyStatus: (propertyId: string, status: Property['status']) => void;
+  addProperty: (property: Omit<Property, 'id' | 'created_at' | 'updated_at'>) => Promise<Property>;
+  updatePropertyStatus: (propertyId: string, status: Property['status']) => Promise<void>;
 
   // Hunter actions
   verifyLead: (leadId: string) => void;
@@ -26,10 +30,29 @@ interface PropertyState {
 }
 
 export const usePropertyStore = create<PropertyState>((set, get) => ({
-  properties: mockProperties,
-  wishlistIds: ['p1', 'p2'], // Initial saved properties
-  hunterLeads: mockHunterLeads,
+  properties: [],
+  wishlistIds: [],
+  hunterLeads: [],
   bookings: [],
+  loading: false,
+
+  fetchProperties: async () => {
+    try {
+      set({ loading: true });
+      const { data, error } = await supabase
+        .from('properties')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        set({ properties: data as Property[], loading: false });
+      } else {
+        set({ loading: false });
+      }
+    } catch (err) {
+      set({ loading: false });
+    }
+  },
 
   toggleWishlist: (propertyId: string) => {
     set((state) => {
@@ -49,25 +72,68 @@ export const usePropertyStore = create<PropertyState>((set, get) => ({
     return get().properties.find((p) => p.id === id);
   },
 
-  addProperty: (newPropData) => {
+  addProperty: async (newPropData) => {
+    const tempId = `p_${Date.now()}`;
     const newProperty: Property = {
       ...newPropData,
-      id: `p_${Date.now()}`,
-      created_at: new Date().toISOString().split('T')[0],
-      updated_at: new Date().toISOString().split('T')[0],
+      id: tempId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
+
     set((state) => ({
       properties: [newProperty, ...state.properties],
     }));
+
+    // Async sync with Supabase
+    try {
+      const { data, error } = await supabase
+        .from('properties')
+        .insert({
+          landlord_id: newPropData.landlord_id,
+          hunter_id: newPropData.hunter_id,
+          title: newPropData.title,
+          description: newPropData.description,
+          price: newPropData.price,
+          currency: newPropData.currency || 'KES',
+          location: newPropData.location,
+          city: newPropData.city || 'Nairobi',
+          latitude: newPropData.latitude,
+          longitude: newPropData.longitude,
+          images: newPropData.images || [],
+          bedrooms: newPropData.bedrooms || 1,
+          bathrooms: newPropData.bathrooms || 1,
+          amenities: newPropData.amenities || [],
+          status: newPropData.status || 'Available',
+          is_verified: newPropData.is_verified || false,
+        })
+        .select()
+        .single();
+
+      if (!error && data) {
+        set((state) => ({
+          properties: state.properties.map((p) => (p.id === tempId ? (data as Property) : p)),
+        }));
+        return data as Property;
+      }
+    } catch (e) {}
+
     return newProperty;
   },
 
-  updatePropertyStatus: (propertyId, status) => {
+  updatePropertyStatus: async (propertyId, status) => {
     set((state) => ({
       properties: state.properties.map((p) =>
-        p.id === propertyId ? { ...p, status, updated_at: new Date().toISOString().split('T')[0] } : p
+        p.id === propertyId ? { ...p, status, updated_at: new Date().toISOString() } : p
       ),
     }));
+
+    try {
+      await supabase
+        .from('properties')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', propertyId);
+    } catch (e) {}
   },
 
   verifyLead: (leadId) => {
@@ -86,7 +152,6 @@ export const usePropertyStore = create<PropertyState>((set, get) => ({
         return lead;
       });
 
-      // Also update property in global properties list if exists
       const targetLead = state.hunterLeads.find((l) => l.id === leadId);
       let updatedProps = state.properties;
       if (targetLead?.property_id) {

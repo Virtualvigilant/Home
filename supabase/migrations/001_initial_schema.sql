@@ -5,12 +5,30 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 1. ENUMS
-CREATE TYPE user_role AS ENUM ('client', 'hunter', 'landlord', 'retailer', 'mover');
-CREATE TYPE property_status AS ENUM ('Available', 'Pending_Escrow', 'Rented');
-CREATE TYPE escrow_status AS ENUM ('Held_In_Escrow', 'Released', 'Refunded');
-CREATE TYPE booking_status AS ENUM ('Pending', 'Confirmed', 'In_Progress', 'Completed', 'Cancelled');
-CREATE TYPE lead_status AS ENUM ('New', 'Verified', 'Booked', 'Expired');
-CREATE TYPE service_type AS ENUM ('Mover', 'Cleaner', 'Furniture_Bundle', 'Setup');
+DO $$ BEGIN
+  CREATE TYPE user_role AS ENUM ('client', 'hunter', 'landlord', 'retailer', 'mover', 'admin');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'admin';
+
+DO $$ BEGIN
+  CREATE TYPE property_status AS ENUM ('Available', 'Pending_Escrow', 'Rented');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE escrow_status AS ENUM ('Held_In_Escrow', 'Released', 'Refunded');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE booking_status AS ENUM ('Pending', 'Confirmed', 'In_Progress', 'Completed', 'Cancelled');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE lead_status AS ENUM ('New', 'Verified', 'Booked', 'Expired');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE service_type AS ENUM ('Mover', 'Cleaner', 'Furniture_Bundle', 'Setup');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 -- 2. USERS / PROFILES TABLE
 CREATE TABLE IF NOT EXISTS public.profiles (
@@ -30,30 +48,67 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 
 -- RLS for Profiles
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON public.profiles;
 CREATE POLICY "Public profiles are viewable by everyone" ON public.profiles FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Users can insert own profile" ON public.profiles;
 CREATE POLICY "Users can insert own profile" ON public.profiles FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id OR auth.jwt()->>'role' = 'service_role');
 
 -- Trigger to automatically create profile row when new user signs up in auth.users
 CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+  parsed_role user_role := 'client'::user_role;
+  raw_role_str TEXT;
+  clean_phone TEXT;
 BEGIN
+  raw_role_str := NEW.raw_user_meta_data->>'role';
+  IF raw_role_str IS NOT NULL AND raw_role_str IN ('client', 'hunter', 'landlord', 'retailer', 'mover', 'admin') THEN
+    parsed_role := raw_role_str::user_role;
+  END IF;
+
+  clean_phone := NULLIF(TRIM(NEW.raw_user_meta_data->>'phone'), '');
+
   INSERT INTO public.profiles (id, email, display_name, phone, role)
   VALUES (
     NEW.id,
     NEW.email,
-    COALESCE(NEW.raw_user_meta_data->>'display_name', split_part(NEW.email, '@', 1)),
-    COALESCE(NEW.raw_user_meta_data->>'phone', NULL),
-    COALESCE((NEW.raw_user_meta_data->>'role')::user_role, 'client'::user_role)
+    COALESCE(NULLIF(TRIM(NEW.raw_user_meta_data->>'display_name'), ''), split_part(NEW.email, '@', 1)),
+    clean_phone,
+    parsed_role
   )
   ON CONFLICT (id) DO UPDATE SET
     email = EXCLUDED.email,
-    display_name = EXCLUDED.display_name;
+    display_name = EXCLUDED.display_name,
+    phone = COALESCE(EXCLUDED.phone, public.profiles.phone),
+    updated_at = CURRENT_TIMESTAMP;
+
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  BEGIN
+    INSERT INTO public.profiles (id, email, display_name, role)
+    VALUES (
+      NEW.id,
+      NEW.email,
+      split_part(NEW.email, '@', 1),
+      'client'::user_role
+    )
+    ON CONFLICT (id) DO NOTHING;
+  EXCEPTION WHEN OTHERS THEN
+    -- Fallback safety to never block auth.users creation
+  END;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
-CREATE OR REPLACE TRIGGER on_auth_user_created
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
@@ -84,8 +139,13 @@ CREATE TABLE IF NOT EXISTS public.properties (
 
 -- RLS for Properties
 ALTER TABLE public.properties ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Properties are viewable by everyone" ON public.properties;
 CREATE POLICY "Properties are viewable by everyone" ON public.properties FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Landlords can insert own properties" ON public.properties;
 CREATE POLICY "Landlords can insert own properties" ON public.properties FOR INSERT WITH CHECK (auth.uid() = landlord_id);
+
+DROP POLICY IF EXISTS "Landlords & Hunters can update assigned properties" ON public.properties;
 CREATE POLICY "Landlords & Hunters can update assigned properties" ON public.properties FOR UPDATE USING (
   auth.uid() = landlord_id OR auth.uid() = hunter_id
 );
@@ -109,7 +169,10 @@ CREATE TABLE IF NOT EXISTS public.products (
 
 -- RLS for Products
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Products viewable by everyone" ON public.products;
 CREATE POLICY "Products viewable by everyone" ON public.products FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Retailers can manage own products" ON public.products;
 CREATE POLICY "Retailers can manage own products" ON public.products FOR ALL USING (auth.uid() = retailer_id);
 
 -- 5. SERVICES TABLE
@@ -129,6 +192,7 @@ CREATE TABLE IF NOT EXISTS public.services (
 
 -- RLS for Services
 ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Services viewable by everyone" ON public.services;
 CREATE POLICY "Services viewable by everyone" ON public.services FOR SELECT USING (true);
 
 -- 6. BOOKINGS TABLE (Core Unified Cart)
@@ -149,7 +213,10 @@ CREATE TABLE IF NOT EXISTS public.bookings (
 
 -- RLS for Bookings
 ALTER TABLE public.bookings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Clients view own bookings" ON public.bookings;
 CREATE POLICY "Clients view own bookings" ON public.bookings FOR SELECT USING (auth.uid() = client_id);
+
+DROP POLICY IF EXISTS "Clients insert own bookings" ON public.bookings;
 CREATE POLICY "Clients insert own bookings" ON public.bookings FOR INSERT WITH CHECK (auth.uid() = client_id);
 
 -- 7. TRANSACTIONS TABLE (Escrow Engine)
@@ -168,6 +235,7 @@ CREATE TABLE IF NOT EXISTS public.transactions (
 
 -- RLS for Transactions
 ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users view transactions linked to their bookings" ON public.transactions;
 CREATE POLICY "Users view transactions linked to their bookings" ON public.transactions FOR SELECT USING (
   EXISTS (
     SELECT 1 FROM public.bookings
@@ -187,6 +255,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_set_release_date ON public.transactions;
 CREATE TRIGGER trigger_set_release_date
 BEFORE INSERT ON public.transactions
 FOR EACH ROW EXECUTE FUNCTION set_escrow_release_date();
@@ -206,6 +275,7 @@ CREATE TABLE IF NOT EXISTS public.hunter_leads (
 
 -- RLS for Hunter Leads
 ALTER TABLE public.hunter_leads ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Hunters manage own leads" ON public.hunter_leads;
 CREATE POLICY "Hunters manage own leads" ON public.hunter_leads FOR ALL USING (auth.uid() = hunter_id);
 
 -- 9. WISHLISTS TABLE
@@ -220,8 +290,13 @@ CREATE TABLE IF NOT EXISTS public.wishlists (
 
 -- RLS for Wishlists
 ALTER TABLE public.wishlists ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users view own wishlist" ON public.wishlists;
 CREATE POLICY "Users view own wishlist" ON public.wishlists FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users insert into own wishlist" ON public.wishlists;
 CREATE POLICY "Users insert into own wishlist" ON public.wishlists FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users delete from own wishlist" ON public.wishlists;
 CREATE POLICY "Users delete from own wishlist" ON public.wishlists FOR DELETE USING (auth.uid() = user_id);
 
 -- 10. MESSAGES TABLE
@@ -237,7 +312,10 @@ CREATE TABLE IF NOT EXISTS public.messages (
 
 -- RLS for Messages
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users view messages sent or received" ON public.messages;
 CREATE POLICY "Users view messages sent or received" ON public.messages FOR SELECT USING (
   auth.uid() = sender_id OR auth.uid() = receiver_id
 );
+
+DROP POLICY IF EXISTS "Users send messages" ON public.messages;
 CREATE POLICY "Users send messages" ON public.messages FOR INSERT WITH CHECK (auth.uid() = sender_id);

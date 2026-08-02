@@ -56,14 +56,10 @@ export default function RegisterScreen() {
     });
 
     if (res.success) {
-      Alert.alert('Account Created!', `Welcome to Home, ${name}! Your account is ready.`, [
-        {
-          text: 'Get Started',
-          onPress: () => router.replace('/(client)/(explore)/homes'),
-        },
-      ]);
+      router.replace('/(client)/(explore)/homes');
     } else {
-      Alert.alert('Registration Error', res.error || 'Failed to create account.');
+      const displayErr = typeof res.error === 'string' ? res.error : ((res.error as any)?.message || 'Failed to create account.');
+      Alert.alert('Registration Error', displayErr);
     }
   };
 
@@ -86,7 +82,13 @@ export default function RegisterScreen() {
           {error && (
             <View style={styles.errorAlert}>
               <Ionicons name="alert-circle" size={18} color={Colors.error} />
-              <Text style={styles.errorAlertText}>{error}</Text>
+              <Text style={styles.errorAlertText}>
+                {typeof error === 'string'
+                  ? error
+                  : typeof (error as any)?.message === 'string'
+                  ? (error as any).message
+                  : 'An error occurred during registration.'}
+              </Text>
             </View>
           )}
 

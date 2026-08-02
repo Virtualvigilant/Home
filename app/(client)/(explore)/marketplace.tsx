@@ -15,6 +15,7 @@ import { SearchBar, FilterTabs, ProductCard, SectionHeader } from '../../../src/
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../../src/constants/theme';
 import { mockProducts } from '../../../src/data/mockData';
 import { Product } from '../../../src/lib/database.types';
+import { supabase } from '../../../src/lib/supabase';
 import { useRouter } from 'expo-router';
 
 const TABS = ['Homes', 'Marketplace', 'Services'];
@@ -57,13 +58,25 @@ export default function MarketplaceScreen() {
     }, 800);
   };
 
+  const [products, setProducts] = useState<Product[]>([]);
+
+  React.useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        const { data } = await supabase.from('products').select('*').order('created_at', { ascending: false });
+        if (data) setProducts(data as Product[]);
+      } catch (e) {}
+    };
+    loadProducts();
+  }, []);
+
   const filteredProducts = searchQuery
-    ? mockProducts.filter(
+    ? products.filter(
         (p) =>
           p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           p.category.toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : mockProducts;
+    : products;
 
   const featured = filteredProducts.filter((p) => p.is_featured);
 
@@ -80,31 +93,47 @@ export default function MarketplaceScreen() {
         />
         <FilterTabs tabs={TABS} activeTab={activeTab} onTabChange={handleTabChange} />
 
-        <SectionHeader title="Featured Items" onSeeAll={() => {}} />
-        <View style={styles.grid}>
-          {featured.map((product) => (
-            <ProductCard
-              key={product.id}
-              product={product}
-              onPress={() => setSelectedProduct(product)}
-              onWishlist={() => toggleWishlist(product.id)}
-              isWishlisted={wishlisted.has(product.id)}
-            />
-          ))}
-        </View>
+        {filteredProducts.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Ionicons name="cart-outline" size={48} color={Colors.textTertiary} />
+            <Text style={styles.emptyTitle}>No Products Available</Text>
+            <Text style={styles.emptySubtitle}>
+              There are currently no items in the marketplace. Retailers can list products to display them here!
+            </Text>
+          </View>
+        ) : (
+          <>
+            {featured.length > 0 && (
+              <>
+                <SectionHeader title="Featured Items" onSeeAll={() => {}} />
+                <View style={styles.grid}>
+                  {featured.map((product) => (
+                    <ProductCard
+                      key={product.id}
+                      product={product}
+                      onPress={() => setSelectedProduct(product)}
+                      onWishlist={() => toggleWishlist(product.id)}
+                      isWishlisted={wishlisted.has(product.id)}
+                    />
+                  ))}
+                </View>
+              </>
+            )}
 
-        <SectionHeader title="All Furniture" onSeeAll={() => {}} />
-        <View style={styles.grid}>
-          {filteredProducts.map((product) => (
-            <ProductCard
-              key={product.id}
-              product={product}
-              onPress={() => setSelectedProduct(product)}
-              onWishlist={() => toggleWishlist(product.id)}
-              isWishlisted={wishlisted.has(product.id)}
-            />
-          ))}
-        </View>
+            <SectionHeader title="All Furniture" onSeeAll={() => {}} />
+            <View style={styles.grid}>
+              {filteredProducts.map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  onPress={() => setSelectedProduct(product)}
+                  onWishlist={() => toggleWishlist(product.id)}
+                  isWishlisted={wishlisted.has(product.id)}
+                />
+              ))}
+            </View>
+          </>
+        )}
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -269,5 +298,28 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: Typography.body,
     fontWeight: Typography.bold,
+  },
+  emptyCard: {
+    backgroundColor: Colors.white,
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.xl,
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.card,
+  },
+  emptyTitle: {
+    fontSize: Typography.h3,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+    marginTop: Spacing.sm,
+  },
+  emptySubtitle: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: Spacing.xs,
+    lineHeight: 20,
   },
 });

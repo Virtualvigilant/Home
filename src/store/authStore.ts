@@ -212,32 +212,56 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Everyone signs up as a normal user ('client')
       const initialRole: UserRole = 'client';
       const isRequestingSpecialRole = requestedRole && requestedRole !== 'client';
+      const cleanPhone = phone && phone.trim() ? phone.trim() : null;
+      const cleanEmail = email.trim().toLowerCase();
 
       // 1. Register with Supabase Auth
       const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
+        email: cleanEmail,
         password,
         options: {
           data: {
             display_name: name.trim(),
             role: initialRole,
             requested_role: isRequestingSpecialRole ? requestedRole : null,
-            phone: phone ? phone.trim() : '',
+            phone: cleanPhone,
           },
         },
       });
 
+      console.log('Supabase Auth signUp response:', { user: data?.user, session: data?.session, error });
+
       if (error) {
-        console.warn('Supabase Auth error:', error.message);
+        let errorMsg = typeof error === 'string' ? error : (error?.message || (error as any)?.error_description || '');
+        if (!errorMsg || errorMsg === '{}') {
+          errorMsg = 'Failed to register user in Supabase Auth.';
+        }
+        if (errorMsg.toLowerCase().includes('already registered') || errorMsg.toLowerCase().includes('already exists')) {
+          errorMsg = 'An account with this email address already exists. Please sign in instead.';
+        } else if (errorMsg.toLowerCase().includes('database error') || errorMsg.toLowerCase().includes('trigger')) {
+          errorMsg = 'Supabase Database Trigger Error: Please execute the updated migration SQL (supabase/migrations/001_initial_schema.sql) in your Supabase Dashboard SQL Editor to apply database fixes.';
+        }
+        console.error('Supabase Auth error:', errorMsg);
+        set({ loading: false, error: errorMsg });
+        return { success: false, error: errorMsg };
       }
 
-      const newUserId = data?.user?.id || `u_${Date.now()}`;
+      // Detect if user already exists (Supabase returns user object with identities: [] if already registered)
+      if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        const existingUserMsg = 'An account with this email address already exists. Please sign in instead.';
+        console.warn(existingUserMsg);
+        set({ loading: false, error: existingUserMsg });
+        return { success: false, error: existingUserMsg };
+      }
+
+      const newUserId = data?.user?.id || `user_${Date.now()}`;
+
       const newProfile: Profile = {
         id: newUserId,
-        email: email.trim(),
+        email: cleanEmail,
         display_name: name.trim(),
         avatar_url: 'https://i.pravatar.cc/150?img=11',
-        phone: phone ? phone.trim() : '+254 712 345 678',
+        phone: cleanPhone || '+254 712 345 678',
         role: initialRole, // Default normal user role
         requested_role: isRequestingSpecialRole ? requestedRole : null,
         role_approval_status: isRequestingSpecialRole ? 'pending' : 'approved',
@@ -251,72 +275,45 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         updated_at: new Date().toISOString().split('T')[0],
       };
 
-      // 2. Insert into Supabase 'profiles' table directly
-      if (data?.user?.id) {
-        const { error: profileError } = await supabase.from('profiles').upsert(
-          {
-            id: data.user.id,
-            email: email.trim(),
-            display_name: name.trim(),
-            avatar_url: 'https://i.pravatar.cc/150?img=11',
-            phone: phone ? phone.trim() : null,
-            role: initialRole,
-            verification_status: false,
-            location: 'Nairobi',
-            city: 'Nairobi',
-            bio: 'Normal client user',
-          },
-          { onConflict: 'id' }
-        );
-
-        if (profileError) {
-          console.warn('Supabase profiles insert error:', profileError.message);
-        }
+      // 2. Safely attempt direct profile upsert (ensures row is created even if DB trigger is unapplied)
+      const { error: upsertErr } = await supabase.from('profiles').upsert(
+        {
+          id: newUserId,
+          email: cleanEmail,
+          display_name: name.trim(),
+          avatar_url: 'https://i.pravatar.cc/150?img=11',
+          phone: cleanPhone,
+          role: initialRole,
+          verification_status: false,
+          location: 'Nairobi',
+          city: 'Nairobi',
+          bio: 'Normal client user',
+        },
+        { onConflict: 'id' }
+      );
+      if (upsertErr) {
+        console.warn('Direct profile upsert warning:', upsertErr.message);
       }
 
       set((state) => ({
-        usersList: [newProfile, ...state.usersList],
+        usersList: [newProfile, ...state.usersList.filter(u => u.id !== newUserId)],
         isAuthenticated: true,
         user: newProfile,
         role: initialRole,
         session: data?.session || null,
         loading: false,
+        error: null,
       }));
 
       return { success: true };
     } catch (err: any) {
-      const initialRole: UserRole = 'client';
-      const isRequestingSpecialRole = requestedRole && requestedRole !== 'client';
-
-      const newProfile: Profile = {
-        id: `u_${Date.now()}`,
-        email: email.trim(),
-        display_name: name.trim(),
-        avatar_url: 'https://i.pravatar.cc/150?img=11',
-        phone: phone ? phone.trim() : '+254 712 345 678',
-        role: initialRole,
-        requested_role: isRequestingSpecialRole ? requestedRole : null,
-        role_approval_status: isRequestingSpecialRole ? 'pending' : 'approved',
-        verification_status: false,
-        location: 'Nairobi',
-        city: 'Nairobi',
-        bio: isRequestingSpecialRole
-          ? `Normal user — Pending approval for ${requestedRole} role`
-          : 'Normal client user',
-        created_at: new Date().toISOString().split('T')[0],
-        updated_at: new Date().toISOString().split('T')[0],
-      };
-
-      set((state) => ({
-        usersList: [newProfile, ...state.usersList],
-        isAuthenticated: true,
-        user: newProfile,
-        role: initialRole,
-        session: null,
-        loading: false,
-      }));
-
-      return { success: true };
+      let errMsg = typeof err === 'string' ? err : err?.message;
+      if (!errMsg || typeof errMsg !== 'string' || errMsg === '{}') {
+        errMsg = 'An unexpected error occurred during signup.';
+      }
+      console.error('SignUp catch error:', errMsg);
+      set({ loading: false, error: errMsg });
+      return { success: false, error: errMsg };
     }
   },
 

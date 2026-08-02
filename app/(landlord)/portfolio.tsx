@@ -44,7 +44,7 @@ export default function PortfolioScreen() {
     router.push(`/property/${id}`);
   };
 
-  const handleCreateProperty = () => {
+  const handleCreateProperty = async () => {
     if (!title.trim() || !location.trim() || !price.trim()) {
       Alert.alert('Missing Fields', 'Please enter a property title, location, and monthly price.');
       return;
@@ -52,7 +52,7 @@ export default function PortfolioScreen() {
 
     const priceNum = parseInt(price.replace(/[^0-9]/g, ''), 10) || 35000;
 
-    const created = addProperty({
+    const created = await addProperty({
       landlord_id: 'u3',
       hunter_id: null,
       title: title.trim(),
@@ -61,12 +61,9 @@ export default function PortfolioScreen() {
       currency: 'KES',
       location: location.trim(),
       city: 'Nairobi',
-      latitude: -1.28,
-      longitude: 36.81,
-      images: [
-        'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800',
-        'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800',
-      ],
+      latitude: -1.286389,
+      longitude: 36.817223,
+      images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800'],
       bedrooms: parseInt(bedrooms, 10) || 2,
       bathrooms: parseInt(bathrooms, 10) || 1,
       amenities: ['Security', 'Parking', 'Wi-Fi'],

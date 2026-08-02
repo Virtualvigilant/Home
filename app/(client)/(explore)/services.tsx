@@ -16,11 +16,12 @@ import { SearchBar, FilterTabs, SectionHeader, ServiceCategory } from '../../../
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../../src/constants/theme';
 import { mockServices, serviceCategories } from '../../../src/data/mockData';
 import { Service } from '../../../src/lib/database.types';
+import { supabase } from '../../../src/lib/supabase';
 import { useRouter } from 'expo-router';
 
 const TABS = ['Homes', 'Marketplace', 'Services'];
 
-const ALL_CATEGORY = { id: 'cat_all', name: 'All Services', icon: 'grid', count: mockServices.length };
+const ALL_CATEGORY = { id: 'cat_all', name: 'All Services', icon: 'grid', count: 0 };
 const categoriesWithAll = [ALL_CATEGORY, ...serviceCategories];
 
 export default function ServicesScreen() {
@@ -30,7 +31,18 @@ export default function ServicesScreen() {
   const [sortBy, setSortBy] = useState<'default' | 'price_low' | 'rating'>('default');
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [isBooking, setIsBooking] = useState(false);
+  const [services, setServices] = useState<Service[]>([]);
   const router = useRouter();
+
+  React.useEffect(() => {
+    const loadServices = async () => {
+      try {
+        const { data } = await supabase.from('services').select('*').order('created_at', { ascending: false });
+        if (data) setServices(data as Service[]);
+      } catch (e) {}
+    };
+    loadServices();
+  }, []);
 
   const handleTabChange = (index: number) => {
     setActiveTab(index);
@@ -63,7 +75,7 @@ export default function ServicesScreen() {
   };
 
   // Filter by category name
-  let filteredServices = mockServices.filter((service) => {
+  let filteredServices = services.filter((service) => {
     if (selectedCategory === 'All Services') return true;
     if (selectedCategory === 'Movers' && service.type === 'Mover') return true;
     if (selectedCategory === 'Cleaners' && service.type === 'Cleaner') return true;
@@ -167,64 +179,54 @@ export default function ServicesScreen() {
         )}
 
         {/* Service Listings */}
-        {filteredServices.map((service) => (
-          <TouchableOpacity
-            key={service.id}
-            style={styles.serviceCard}
-            onPress={() => setSelectedService(service)}
-            activeOpacity={0.9}
-          >
-            <Image
-              source={{ uri: service.image_url || 'https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=800' }}
-              style={styles.serviceImage}
-              contentFit="cover"
-              transition={200}
-            />
-            <View style={styles.serviceInfo}>
-              <View style={styles.typeBadgeRow}>
-                <Text style={styles.serviceType}>{service.type.replace('_', ' ')}</Text>
-                {service.availability && (
-                  <View style={styles.availableDotRow}>
-                    <View style={styles.availableDot} />
-                    <Text style={styles.availableText}>Available</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.serviceName}>{service.name}</Text>
-              <Text style={styles.serviceDesc} numberOfLines={2}>
-                {service.description}
-              </Text>
-              <View style={styles.serviceFooter}>
-                <Text style={styles.servicePrice}>
-                  From KES {service.price.toLocaleString()}
+        {filteredServices.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Ionicons name="construct-outline" size={48} color={Colors.textTertiary} />
+            <Text style={styles.emptyTitle}>No Services Available</Text>
+            <Text style={styles.emptySubtitle}>
+              There are currently no listed home services. Service providers can list services to display them here!
+            </Text>
+          </View>
+        ) : (
+          filteredServices.map((service) => (
+            <TouchableOpacity
+              key={service.id}
+              style={styles.serviceCard}
+              onPress={() => setSelectedService(service)}
+              activeOpacity={0.9}
+            >
+              <Image
+                source={{ uri: service.image_url || 'https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=800' }}
+                style={styles.serviceImage}
+                contentFit="cover"
+                transition={200}
+              />
+              <View style={styles.serviceInfo}>
+                <View style={styles.typeBadgeRow}>
+                  <Text style={styles.serviceType}>{service.type.replace('_', ' ')}</Text>
+                  {service.availability && (
+                    <View style={styles.availableDotRow}>
+                      <View style={styles.availableDot} />
+                      <Text style={styles.availableText}>Available</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.serviceName}>{service.name}</Text>
+                <Text style={styles.serviceDesc} numberOfLines={2}>
+                  {service.description}
                 </Text>
-                <View style={styles.ratingRow}>
-                  <Ionicons name="star" size={14} color={Colors.deepCocoa} />
-                  <Text style={styles.ratingText}> {service.rating}</Text>
+                <View style={styles.serviceFooter}>
+                  <Text style={styles.servicePrice}>
+                    From KES {service.price.toLocaleString()}
+                  </Text>
+                  <View style={styles.ratingRow}>
+                    <Ionicons name="star" size={14} color={Colors.deepCocoa} />
+                    <Text style={styles.ratingText}> {service.rating}</Text>
+                  </View>
                 </View>
               </View>
-            </View>
-          </TouchableOpacity>
-        ))}
-
-        {filteredServices.length === 0 && (
-          <View style={styles.emptyState}>
-            <Ionicons name="options-outline" size={48} color={Colors.textTertiary} />
-            <Text style={styles.emptyTitle}>No matching services</Text>
-            <Text style={styles.emptySubtitle}>
-              Try selecting another category or clearing your search filter.
-            </Text>
-            <TouchableOpacity
-              style={styles.resetFilterBtn}
-              onPress={() => {
-                setSelectedCategory('All Services');
-                setSearchQuery('');
-                setSortBy('default');
-              }}
-            >
-              <Text style={styles.resetFilterText}>Reset Filters</Text>
             </TouchableOpacity>
-          </View>
+          ))
         )}
 
         <View style={{ height: 40 }} />
@@ -552,5 +554,15 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: Typography.body,
     fontWeight: Typography.bold,
+  },
+  emptyCard: {
+    backgroundColor: Colors.white,
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.xl,
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.card,
   },
 });

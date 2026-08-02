@@ -56,8 +56,38 @@ export default function PropertyDetailScreen() {
 
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
 
-  const landlord = mockUsers.find((u) => u.id === property.landlord_id) || mockUsers[2];
-  const hunter = mockUsers.find((u) => u.id === property.hunter_id) || mockUsers[1];
+  const defaultLandlord = {
+    id: 'u3',
+    display_name: 'Property Host',
+    avatar_url: 'https://i.pravatar.cc/150?img=12',
+    location: property.location || 'Nairobi',
+    bio: 'Verified property landlord listing on Home App.',
+    phone: '+254 700 000 000',
+    email: 'landlord@home.co.ke',
+    role: 'landlord' as const,
+    verification_status: true,
+    city: 'Nairobi',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const defaultHunter = {
+    id: 'u2',
+    display_name: 'Verified Hunter',
+    avatar_url: 'https://i.pravatar.cc/150?img=5',
+    location: 'Nairobi',
+    bio: 'Verified house hunter on Home App.',
+    phone: '+254 711 000 000',
+    email: 'hunter@home.co.ke',
+    role: 'hunter' as const,
+    verification_status: true,
+    city: 'Nairobi',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const landlord = mockUsers.find((u) => u.id === property.landlord_id) || defaultLandlord;
+  const hunter = mockUsers.find((u) => u.id === property.hunter_id) || (property.hunter_id ? defaultHunter : null);
 
   const formatPrice = (price: number) => {
     return `KES ${price.toLocaleString()}`;
@@ -65,18 +95,21 @@ export default function PropertyDetailScreen() {
 
   const getAmenityIcon = (amenity: string): any => {
     const lower = amenity.toLowerCase();
-    if (lower.includes('pool')) return 'water-outline';
-    if (lower.includes('security')) return 'shield-checkmark-outline';
+    if (lower.includes('pool')) return 'water-sharp';
+    if (lower.includes('security') || lower.includes('fence') || lower.includes('cctv')) return 'shield-checkmark-outline';
     if (lower.includes('parking')) return 'car-outline';
-    if (lower.includes('wifi') || lower.includes('wi-fi')) return 'wifi-outline';
-    if (lower.includes('gym')) return 'fitness-outline';
-    if (lower.includes('balcony')) return 'eye-outline';
-    if (lower.includes('garden')) return 'leaf-outline';
-    if (lower.includes('elevator')) return 'hardware-chip-outline';
-    if (lower.includes('dsq')) return 'home-outline';
-    if (lower.includes('borehole')) return 'water-outline';
-    if (lower.includes('rooftop')) return 'sunny-outline';
-    if (lower.includes('smart')) return 'phone-portrait-outline';
+    if (lower.includes('wifi') || lower.includes('wi-fi') || lower.includes('internet')) return 'wifi-outline';
+    if (lower.includes('gym') || lower.includes('fitness')) return 'fitness-outline';
+    if (lower.includes('balcony')) return 'home-outline';
+    if (lower.includes('garden') || lower.includes('lawn')) return 'leaf-outline';
+    if (lower.includes('elevator') || lower.includes('lift')) return 'swap-vertical-outline';
+    if (lower.includes('dsq') || lower.includes('staff')) return 'bed-outline';
+    if (lower.includes('water') || lower.includes('borehole')) return 'water-outline';
+    if (lower.includes('generator') || lower.includes('backup')) return 'flash-outline';
+    if (lower.includes('tv') || lower.includes('dstv') || lower.includes('cable')) return 'tv-outline';
+    if (lower.includes('laundry')) return 'shirt-outline';
+    if (lower.includes('children') || lower.includes('kids') || lower.includes('play')) return 'happy-outline';
+    if (lower.includes('garbage') || lower.includes('trash')) return 'trash-outline';
     return 'checkmark-circle-outline';
   };
 
@@ -158,12 +191,18 @@ export default function PropertyDetailScreen() {
         contentContainerStyle={styles.scrollContent}
       >
         {/* Main Image Carousel */}
-        <View style={styles.carouselContainer}>
-          <FlatList
-            horizontal
-            pagingEnabled
-            data={property.images}
-            keyExtractor={(_, index) => index.toString()}
+        {(() => {
+          const displayImages = property.images && property.images.length > 0 && property.images[0]
+            ? property.images
+            : ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800'];
+
+          return (
+            <View style={styles.carouselContainer}>
+              <FlatList
+                horizontal
+                pagingEnabled
+                data={displayImages}
+                keyExtractor={(_, index) => index.toString()}
             showsHorizontalScrollIndicator={false}
             onMomentumScrollEnd={(e) => {
               const index = Math.round(
@@ -213,6 +252,8 @@ export default function PropertyDetailScreen() {
             />
           </View>
         </View>
+          );
+        })()}
 
         {/* Title, Price & Rating Section */}
         <View style={styles.mainInfoSection}>
@@ -324,13 +365,13 @@ export default function PropertyDetailScreen() {
           {/* Landlord Card */}
           <View style={styles.contactCard}>
             <Image
-              source={{ uri: landlord.avatar_url || 'https://i.pravatar.cc/150?img=12' }}
+              source={{ uri: landlord?.avatar_url || 'https://i.pravatar.cc/150?img=12' }}
               style={styles.contactAvatar}
             />
             <View style={styles.contactDetails}>
-              <Text style={styles.contactName}>{landlord.display_name}</Text>
-              <Text style={styles.contactRole}>Property Landlord • {landlord.location}</Text>
-              <Text style={styles.contactBio}>{landlord.bio}</Text>
+              <Text style={styles.contactName}>{landlord?.display_name || 'Property Host'}</Text>
+              <Text style={styles.contactRole}>Property Landlord • {landlord?.location || 'Nairobi'}</Text>
+              <Text style={styles.contactBio}>{landlord?.bio || 'Verified property host.'}</Text>
             </View>
             <TouchableOpacity
               style={styles.contactActionBtn}
@@ -345,12 +386,12 @@ export default function PropertyDetailScreen() {
           {hunter && property.is_verified && (
             <View style={[styles.contactCard, { marginTop: Spacing.sm, backgroundColor: '#F9F6F0' }]}>
               <Image
-                source={{ uri: hunter.avatar_url || 'https://i.pravatar.cc/150?img=5' }}
+                source={{ uri: hunter?.avatar_url || 'https://i.pravatar.cc/150?img=5' }}
                 style={styles.contactAvatar}
               />
               <View style={styles.contactDetails}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={styles.contactName}>{hunter.display_name}</Text>
+                  <Text style={styles.contactName}>{hunter?.display_name || 'Verified Hunter'}</Text>
                   <Ionicons name="checkmark-circle" size={16} color={Colors.badgeVerified} style={{ marginLeft: 4 }} />
                 </View>
                 <Text style={styles.contactRole}>Verified House Hunter</Text>

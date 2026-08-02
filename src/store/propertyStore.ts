@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Property, HunterLead, Booking } from '../lib/database.types';
 import { supabase } from '../lib/supabase';
+import { Alert } from 'react-native';
 
 interface PropertyState {
   properties: Property[];
@@ -73,52 +74,73 @@ export const usePropertyStore = create<PropertyState>((set, get) => ({
   },
 
   addProperty: async (newPropData) => {
-    const tempId = `p_${Date.now()}`;
-    const newProperty: Property = {
-      ...newPropData,
-      id: tempId,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    let landlordId = newPropData.landlord_id;
+    
+    // Check if landlordId is missing or mock string
+    if (!landlordId || !landlordId.includes('-')) {
+      const { data: authData } = await supabase.auth.getUser();
+      if (authData?.user?.id) {
+        landlordId = authData.user.id;
+      }
+    }
 
-    set((state) => ({
-      properties: [newProperty, ...state.properties],
-    }));
+    if (!landlordId || !landlordId.includes('-')) {
+      Alert.alert('Sign In Required', 'Please sign in to your landlord account to publish properties.');
+      throw new Error('Valid landlord UUID required to save property.');
+    }
 
-    // Async sync with Supabase
     try {
+      const insertPayload = {
+        landlord_id: landlordId,
+        hunter_id: newPropData.hunter_id || null,
+        title: newPropData.title,
+        description: newPropData.description,
+        price: newPropData.price,
+        currency: newPropData.currency || 'KES',
+        location: newPropData.location,
+        city: newPropData.city || 'Nairobi',
+        latitude: newPropData.latitude || -1.286389,
+        longitude: newPropData.longitude || 36.817223,
+        images: newPropData.images || [],
+        bedrooms: newPropData.bedrooms || 1,
+        bathrooms: newPropData.bathrooms || 1,
+        amenities: newPropData.amenities || [],
+        status: newPropData.status || 'Available',
+        is_verified: newPropData.is_verified || false,
+      };
+
       const { data, error } = await supabase
         .from('properties')
-        .insert({
-          landlord_id: newPropData.landlord_id,
-          hunter_id: newPropData.hunter_id,
-          title: newPropData.title,
-          description: newPropData.description,
-          price: newPropData.price,
-          currency: newPropData.currency || 'KES',
-          location: newPropData.location,
-          city: newPropData.city || 'Nairobi',
-          latitude: newPropData.latitude,
-          longitude: newPropData.longitude,
-          images: newPropData.images || [],
-          bedrooms: newPropData.bedrooms || 1,
-          bathrooms: newPropData.bathrooms || 1,
-          amenities: newPropData.amenities || [],
-          status: newPropData.status || 'Available',
-          is_verified: newPropData.is_verified || false,
-        })
+        .insert(insertPayload)
         .select()
         .single();
 
-      if (!error && data) {
-        set((state) => ({
-          properties: state.properties.map((p) => (p.id === tempId ? (data as Property) : p)),
-        }));
-        return data as Property;
+      if (error) {
+        console.error('Supabase property insert error:', error.message, error.details);
+        Alert.alert('Database Error', error.message || 'Could not save property to database.');
+        throw error;
       }
-    } catch (e) {}
 
-    return newProperty;
+      if (data) {
+        const addedProp = data as Property;
+        set((state) => ({
+          properties: [addedProp, ...state.properties],
+        }));
+        return addedProp;
+      }
+    } catch (e: any) {
+      console.error('Property save error:', e);
+      throw e;
+    }
+
+    const fallbackTemp: Property = {
+      ...newPropData,
+      landlord_id: landlordId,
+      id: `p_${Date.now()}`,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    return fallbackTemp;
   },
 
   updatePropertyStatus: async (propertyId, status) => {

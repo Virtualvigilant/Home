@@ -3,16 +3,26 @@ import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
-
-const rentData = [
-  { id: '1', property: 'Flat in Runda', tenant: 'James K.', amount: 150000, status: 'Paid', dueDate: 'Jul 1', paidDate: 'Jun 29' },
-  { id: '2', property: 'Mansionette, Karen', tenant: '—', amount: 120000, status: 'Vacant', dueDate: '—', paidDate: '—' },
-  { id: '3', property: '2-Bed Apt Kileleshwa', tenant: 'Aisha M.', amount: 65000, status: 'Overdue', dueDate: 'Jul 1', paidDate: '—' },
-];
+import { usePropertyStore } from '../../src/store/propertyStore';
 
 export default function RentTrackerScreen() {
-  const totalExpected = rentData.reduce((sum, r) => r.status !== 'Vacant' ? sum + r.amount : sum, 0);
-  const totalCollected = rentData.reduce((sum, r) => r.status === 'Paid' ? sum + r.amount : sum, 0);
+  const { properties } = usePropertyStore();
+
+  // Derive rent tracker records dynamically from properties
+  const rentData = properties.map((p) => ({
+    id: p.id,
+    property: p.title,
+    tenant: p.status === 'Rented' ? 'Tenant Assigned' : '—',
+    amount: p.price,
+    status: p.status === 'Rented' ? 'Paid' : p.status === 'Pending_Escrow' ? 'Overdue' : 'Vacant',
+    dueDate: '1st of Month',
+    paidDate: p.status === 'Rented' ? 'Paid' : '—',
+  }));
+
+  const totalExpected = rentData.reduce((sum, r) => (r.status !== 'Vacant' ? sum + r.amount : sum), 0);
+  const totalCollected = rentData.reduce((sum, r) => (r.status === 'Paid' ? sum + r.amount : sum), 0);
+
+  const currentMonth = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase();
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -35,37 +45,57 @@ export default function RentTrackerScreen() {
 
         {/* Rent Items */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>JULY 2024</Text>
-          {rentData.map((item) => (
-            <View key={item.id} style={styles.rentItem}>
-              <View style={styles.rentLeft}>
-                <Ionicons
-                  name={
-                    item.status === 'Paid' ? 'checkmark-circle' :
-                    item.status === 'Overdue' ? 'alert-circle' : 'remove-circle-outline'
-                  }
-                  size={24}
-                  color={
-                    item.status === 'Paid' ? Colors.badgeSuccess :
-                    item.status === 'Overdue' ? Colors.error : Colors.textTertiary
-                  }
-                />
-              </View>
-              <View style={styles.rentInfo}>
-                <Text style={styles.rentProperty}>{item.property}</Text>
-                <Text style={styles.rentTenant}>{item.tenant}</Text>
-              </View>
-              <View style={styles.rentRight}>
-                <Text style={styles.rentAmount}>KES {item.amount.toLocaleString()}</Text>
-                <Text style={[
-                  styles.rentStatus,
-                  item.status === 'Paid' && { color: Colors.badgeSuccess },
-                  item.status === 'Overdue' && { color: Colors.error },
-                  item.status === 'Vacant' && { color: Colors.textTertiary },
-                ]}>{item.status}</Text>
-              </View>
+          <Text style={styles.sectionTitle}>{currentMonth}</Text>
+          {rentData.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Ionicons name="card-outline" size={48} color={Colors.textTertiary} />
+              <Text style={styles.emptyTitle}>No Rent Records Yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Add properties to your portfolio to track tenant rent payments, escrow releases, and overdue balances.
+              </Text>
             </View>
-          ))}
+          ) : (
+            rentData.map((item) => (
+              <View key={item.id} style={styles.rentItem}>
+                <View style={styles.rentLeft}>
+                  <Ionicons
+                    name={
+                      item.status === 'Paid'
+                        ? 'checkmark-circle'
+                        : item.status === 'Overdue'
+                        ? 'alert-circle'
+                        : 'remove-circle-outline'
+                    }
+                    size={24}
+                    color={
+                      item.status === 'Paid'
+                        ? Colors.badgeSuccess
+                        : item.status === 'Overdue'
+                        ? Colors.error
+                        : Colors.textTertiary
+                    }
+                  />
+                </View>
+                <View style={styles.rentInfo}>
+                  <Text style={styles.rentProperty}>{item.property}</Text>
+                  <Text style={styles.rentTenant}>{item.tenant}</Text>
+                </View>
+                <View style={styles.rentRight}>
+                  <Text style={styles.rentAmount}>KES {item.amount.toLocaleString()}</Text>
+                  <Text
+                    style={[
+                      styles.rentStatus,
+                      item.status === 'Paid' && { color: Colors.badgeSuccess },
+                      item.status === 'Overdue' && { color: Colors.error },
+                      item.status === 'Vacant' && { color: Colors.textTertiary },
+                    ]}
+                  >
+                    {item.status}
+                  </Text>
+                </View>
+              </View>
+            ))
+          )}
         </View>
 
         <View style={{ height: 40 }} />
@@ -84,6 +114,27 @@ const styles = StyleSheet.create({
   summaryValue: { fontSize: Typography.h2, fontWeight: Typography.bold, color: Colors.white, marginTop: Spacing.xs },
   section: { marginHorizontal: Spacing.lg, marginTop: Spacing.xl },
   sectionTitle: { fontSize: Typography.caption, fontWeight: Typography.semiBold, color: Colors.textSecondary, letterSpacing: 0.5, marginBottom: Spacing.md },
+  emptyCard: {
+    backgroundColor: Colors.white,
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.card,
+  },
+  emptyTitle: {
+    fontSize: Typography.h3,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+    marginTop: Spacing.sm,
+  },
+  emptySubtitle: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: Spacing.xs,
+    lineHeight: 20,
+  },
   rentItem: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.white,
     borderRadius: BorderRadius.md, padding: Spacing.md, marginBottom: Spacing.sm, ...Shadows.card,

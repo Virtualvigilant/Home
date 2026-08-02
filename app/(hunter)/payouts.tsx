@@ -1,16 +1,22 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, FlatList } from 'react-native';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
-
-const payoutHistory = [
-  { id: '1', property: '1-Bed Studio Kilimani', amount: 3500, status: 'Completed', date: 'Jun 13, 2024' },
-  { id: '2', property: 'Room in Kileleshwa', amount: 4000, status: 'Completed', date: 'Jun 8, 2024' },
-  { id: '3', property: '2-Bed Apt Kileleshwa', amount: 5000, status: 'Pending', date: 'Jun 14, 2024' },
-];
+import { usePropertyStore } from '../../src/store/propertyStore';
 
 export default function PayoutsScreen() {
+  const { hunterLeads } = usePropertyStore();
+
+  // Calculate earnings dynamically from verified hunter leads
+  const payoutHistory = hunterLeads.map((lead) => ({
+    id: lead.id,
+    property: lead.property?.title || 'Property Lead',
+    amount: lead.bounty_amount || 0,
+    status: lead.status === 'Booked' ? 'Completed' : 'Pending',
+    date: new Date(lead.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+  }));
+
   const totalEarnings = payoutHistory.reduce((sum, p) => p.status === 'Completed' ? sum + p.amount : sum, 0);
   const pendingAmount = payoutHistory.reduce((sum, p) => p.status === 'Pending' ? sum + p.amount : sum, 0);
 
@@ -41,27 +47,37 @@ export default function PayoutsScreen() {
         {/* History */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>PAYOUT HISTORY</Text>
-          {payoutHistory.map((payout) => (
-            <View key={payout.id} style={styles.payoutItem}>
-              <View style={styles.payoutIcon}>
-                <Ionicons
-                  name={payout.status === 'Completed' ? 'checkmark-circle' : 'time'}
-                  size={24}
-                  color={payout.status === 'Completed' ? Colors.badgeSuccess : Colors.badgePending}
-                />
-              </View>
-              <View style={styles.payoutInfo}>
-                <Text style={styles.payoutProperty}>{payout.property}</Text>
-                <Text style={styles.payoutDate}>{payout.date}</Text>
-              </View>
-              <View style={styles.payoutRight}>
-                <Text style={styles.payoutAmount}>KES {payout.amount.toLocaleString()}</Text>
-                <Text style={[styles.payoutStatus, payout.status === 'Pending' && styles.payoutStatusPending]}>
-                  {payout.status}
-                </Text>
-              </View>
+          {payoutHistory.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Ionicons name="wallet-outline" size={48} color={Colors.textTertiary} />
+              <Text style={styles.emptyTitle}>No Payout History Yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Bounties earned from verified property listings and completed bookings will be listed here.
+              </Text>
             </View>
-          ))}
+          ) : (
+            payoutHistory.map((payout) => (
+              <View key={payout.id} style={styles.payoutItem}>
+                <View style={styles.payoutIcon}>
+                  <Ionicons
+                    name={payout.status === 'Completed' ? 'checkmark-circle' : 'time'}
+                    size={24}
+                    color={payout.status === 'Completed' ? Colors.badgeSuccess : Colors.badgePending}
+                  />
+                </View>
+                <View style={styles.payoutInfo}>
+                  <Text style={styles.payoutProperty}>{payout.property}</Text>
+                  <Text style={styles.payoutDate}>{payout.date}</Text>
+                </View>
+                <View style={styles.payoutRight}>
+                  <Text style={styles.payoutAmount}>KES {payout.amount.toLocaleString()}</Text>
+                  <Text style={[styles.payoutStatus, payout.status === 'Pending' && styles.payoutStatusPending]}>
+                    {payout.status}
+                  </Text>
+                </View>
+              </View>
+            ))
+          )}
         </View>
 
         <View style={{ height: 40 }} />
@@ -87,6 +103,27 @@ const styles = StyleSheet.create({
   balanceDivider: { width: 1, backgroundColor: Colors.warmAlmond, opacity: 0.3, marginHorizontal: Spacing.lg },
   section: { marginHorizontal: Spacing.lg, marginTop: Spacing.xl },
   sectionTitle: { fontSize: Typography.caption, fontWeight: Typography.semiBold, color: Colors.textSecondary, letterSpacing: 0.5, marginBottom: Spacing.md },
+  emptyCard: {
+    backgroundColor: Colors.white,
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.card,
+  },
+  emptyTitle: {
+    fontSize: Typography.h3,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+    marginTop: Spacing.sm,
+  },
+  emptySubtitle: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: Spacing.xs,
+    lineHeight: 20,
+  },
   payoutItem: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: Colors.white, borderRadius: BorderRadius.md,

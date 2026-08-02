@@ -38,6 +38,10 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({
     return `KES ${price}`;
   };
 
+  const propertyImage = property.images && property.images.length > 0 && property.images[0]
+    ? property.images[0]
+    : 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800';
+
   return (
     <TouchableOpacity
       style={styles.card}
@@ -46,7 +50,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({
     >
       <View style={styles.imageContainer}>
         <Image
-          source={{ uri: imgError ? 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800' : property.images[0] }}
+          source={{ uri: imgError ? 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800' : propertyImage }}
           style={styles.image}
           contentFit="cover"
           transition={200}

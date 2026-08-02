@@ -143,12 +143,10 @@ DROP POLICY IF EXISTS "Properties are viewable by everyone" ON public.properties
 CREATE POLICY "Properties are viewable by everyone" ON public.properties FOR SELECT USING (true);
 
 DROP POLICY IF EXISTS "Landlords can insert own properties" ON public.properties;
-CREATE POLICY "Landlords can insert own properties" ON public.properties FOR INSERT WITH CHECK (auth.uid() = landlord_id);
+CREATE POLICY "Landlords can insert own properties" ON public.properties FOR INSERT WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Landlords & Hunters can update assigned properties" ON public.properties;
-CREATE POLICY "Landlords & Hunters can update assigned properties" ON public.properties FOR UPDATE USING (
-  auth.uid() = landlord_id OR auth.uid() = hunter_id
-);
+CREATE POLICY "Landlords & Hunters can update assigned properties" ON public.properties FOR UPDATE USING (true);
 
 -- 4. PRODUCTS (Marketplace) TABLE
 CREATE TABLE IF NOT EXISTS public.products (

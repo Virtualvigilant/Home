@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
+import { supabase } from '../../src/lib/supabase';
+import { useAuthStore } from '../../src/store/authStore';
 
 interface Conversation {
   id: string;
@@ -21,46 +23,53 @@ interface Conversation {
   role: string;
 }
 
-const mockConversations: Conversation[] = [
-  {
-    id: '1',
-    name: 'Amina Hassan',
-    avatar: 'https://i.pravatar.cc/150?img=5',
-    lastMessage: 'I found a great 2-bed in Kileleshwa for you!',
-    time: '2m ago',
-    unread: 2,
-    role: 'Hunter',
-  },
-  {
-    id: '2',
-    name: 'Swift Movers KE',
-    avatar: 'https://i.pravatar.cc/150?img=52',
-    lastMessage: 'We can schedule the move for Saturday. Does that work?',
-    time: '1h ago',
-    unread: 0,
-    role: 'Mover',
-  },
-  {
-    id: '3',
-    name: 'Furnicraft Kenya',
-    avatar: 'https://i.pravatar.cc/150?img=60',
-    lastMessage: 'Your sofa set order has been confirmed ✓',
-    time: '3h ago',
-    unread: 1,
-    role: 'Retailer',
-  },
-  {
-    id: '4',
-    name: 'Peter Omondi',
-    avatar: 'https://i.pravatar.cc/150?img=12',
-    lastMessage: 'The lease agreement is ready for your review.',
-    time: 'Yesterday',
-    unread: 0,
-    role: 'Landlord',
-  },
-];
-
 export default function MessagesScreen() {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const { user } = useAuthStore();
+
+  useEffect(() => {
+    const fetchMessages = async () => {
+      if (!user) return;
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .select('*')
+          .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+          .order('created_at', { ascending: false });
+
+        if (!error && data && data.length > 0) {
+          // Group by conversation
+          const convMap: Record<string, Conversation> = {};
+          data.forEach((msg) => {
+            const partnerId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id;
+            if (!convMap[partnerId]) {
+              convMap[partnerId] = {
+                id: partnerId,
+                name: 'Member',
+                avatar: 'https://i.pravatar.cc/150?img=11',
+                lastMessage: msg.content,
+                time: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                unread: msg.read_at ? 0 : 1,
+                role: 'User',
+              };
+            }
+          });
+          setConversations(Object.values(convMap));
+        } else {
+          setConversations([]);
+        }
+      } catch (err) {
+        setConversations([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMessages();
+  }, [user]);
+
   const renderConversation = ({ item }: { item: Conversation }) => (
     <TouchableOpacity style={styles.conversationCard} activeOpacity={0.7}>
       <Image
@@ -94,14 +103,24 @@ export default function MessagesScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Messages</Text>
       </View>
-      <FlatList
-        data={mockConversations}
-        keyExtractor={(item) => item.id}
-        renderItem={renderConversation}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
-      />
+      {conversations.length === 0 ? (
+        <View style={styles.emptyCard}>
+          <Ionicons name="chatbubbles-outline" size={48} color={Colors.textTertiary} />
+          <Text style={styles.emptyTitle}>No Messages Yet</Text>
+          <Text style={styles.emptySubtitle}>
+            Your conversations with landlords, hunters, retailers, and service providers will appear here once you send or receive messages.
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={conversations}
+          keyExtractor={(item) => item.id}
+          renderItem={renderConversation}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContent}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -123,6 +142,29 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: Spacing.lg,
+  },
+  emptyCard: {
+    backgroundColor: Colors.white,
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.xl,
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.card,
+  },
+  emptyTitle: {
+    fontSize: Typography.h3,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+    marginTop: Spacing.sm,
+  },
+  emptySubtitle: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: Spacing.xs,
+    lineHeight: 20,
   },
   conversationCard: {
     flexDirection: 'row',

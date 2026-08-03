@@ -13,10 +13,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { formatPickedAsset, getValidPropertyImages, DEFAULT_PROPERTY_IMAGE } from '../../src/lib/imageUtils';
 import { FilterTabs, PropertyListingCard } from '../../src/components';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
 import { usePropertyStore } from '../../src/store/propertyStore';
 import { useAuthStore } from '../../src/store/authStore';
+import { Property } from '../../src/lib/database.types';
 import { useRouter } from 'expo-router';
 
 const TABS = ['Listed', 'Inquiries'];
@@ -49,9 +51,10 @@ const PRESET_AMENITIES: AmenityOption[] = [
 export default function PortfolioScreen() {
   const [activeTab, setActiveTab] = useState(0);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null);
   const router = useRouter();
 
-  const { properties, addProperty, fetchProperties } = usePropertyStore();
+  const { properties, addProperty, updateProperty, deleteProperty, fetchProperties } = usePropertyStore();
   const { user } = useAuthStore();
 
   useEffect(() => {
@@ -67,12 +70,48 @@ export default function PortfolioScreen() {
   const [description, setDescription] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [imagesList, setImagesList] = useState<string[]>([]);
+  const [status, setStatus] = useState<Property['status']>('Available');
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([
     '24/7 Security & CCTV',
     'Dedicated Parking',
     'High-Speed Wi-Fi',
     'Borehole / 24/7 Water',
   ]);
+
+  const handleOpenAddModal = () => {
+    setEditingPropertyId(null);
+    setTitle('');
+    setLocation('');
+    setPrice('');
+    setBedrooms('2');
+    setBathrooms('1');
+    setDescription('');
+    setImageUrl('');
+    setImagesList([]);
+    setStatus('Available');
+    setSelectedAmenities([
+      '24/7 Security & CCTV',
+      'Dedicated Parking',
+      'High-Speed Wi-Fi',
+      'Borehole / 24/7 Water',
+    ]);
+    setIsAddModalOpen(true);
+  };
+
+  const handleOpenEditModal = (prop: any) => {
+    setEditingPropertyId(prop.id);
+    setTitle(prop.title || '');
+    setLocation(prop.location || '');
+    setPrice(prop.price ? prop.price.toString() : '');
+    setBedrooms(prop.bedrooms ? prop.bedrooms.toString() : '1');
+    setBathrooms(prop.bathrooms ? prop.bathrooms.toString() : '1');
+    setDescription(prop.description || '');
+    setImageUrl('');
+    setImagesList(getValidPropertyImages(prop.images));
+    setSelectedAmenities(prop.amenities || []);
+    setStatus(prop.status || 'Available');
+    setIsAddModalOpen(true);
+  };
 
   const handleAddImage = (urlToAdd?: string) => {
     const targetUrl = (urlToAdd || imageUrl).trim();
@@ -101,12 +140,13 @@ export default function PortfolioScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsMultipleSelection: true,
-      quality: 0.8,
+      quality: 0.7,
+      base64: true,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      const newUris = result.assets.map((asset) => asset.uri);
-      const combined = Array.from(new Set([...imagesList, ...newUris]));
+      const formattedUris = result.assets.map((asset) => formatPickedAsset(asset));
+      const combined = Array.from(new Set([...imagesList, ...formattedUris]));
       setImagesList(combined);
     }
   };
@@ -121,13 +161,14 @@ export default function PortfolioScreen() {
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [4, 3],
-      quality: 0.8,
+      quality: 0.7,
+      base64: true,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      const newUri = result.assets[0].uri;
-      if (!imagesList.includes(newUri)) {
-        setImagesList([...imagesList, newUri]);
+      const formattedUri = formatPickedAsset(result.assets[0]);
+      if (!imagesList.includes(formattedUri)) {
+        setImagesList([...imagesList, formattedUri]);
       }
     }
   };
@@ -144,7 +185,7 @@ export default function PortfolioScreen() {
     }
   };
 
-  const handleCreateProperty = async () => {
+  const handleSaveProperty = async () => {
     if (!title.trim() || !location.trim() || !price.trim()) {
       Alert.alert('Missing Fields', 'Please enter a property title, location, and monthly price.');
       return;
@@ -152,61 +193,88 @@ export default function PortfolioScreen() {
 
     const landlordId = user?.id;
     if (!landlordId) {
-      Alert.alert('Authentication Required', 'Please sign in to your landlord account to add properties.');
+      Alert.alert('Authentication Required', 'Please sign in to your landlord account to save properties.');
       return;
     }
 
     const priceNum = parseInt(price.replace(/[^0-9]/g, ''), 10) || 35000;
-    const finalImages = imagesList.length > 0
-      ? imagesList
-      : ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800'];
+    const finalImages = getValidPropertyImages(imagesList);
     const finalAmenities = selectedAmenities.length > 0
       ? selectedAmenities
       : ['24/7 Security & CCTV', 'Dedicated Parking'];
 
     try {
-      const created = await addProperty({
-        landlord_id: landlordId,
-        hunter_id: null,
-        title: title.trim(),
-        description: description.trim() || 'Modern residential property available for rent.',
-        price: priceNum,
-        currency: 'KES',
-        location: location.trim(),
-        city: 'Nairobi',
-        latitude: -1.286389,
-        longitude: 36.817223,
-        images: finalImages,
-        bedrooms: parseInt(bedrooms, 10) || 2,
-        bathrooms: parseInt(bathrooms, 10) || 1,
-        amenities: finalAmenities,
-        status: 'Available',
-        is_verified: false,
-        rating: 5.0,
-        review_count: 1,
-      });
+      if (editingPropertyId) {
+        // Edit existing listing
+        await updateProperty(editingPropertyId, {
+          title: title.trim(),
+          location: location.trim(),
+          price: priceNum,
+          bedrooms: parseInt(bedrooms, 10) || 1,
+          bathrooms: parseInt(bathrooms, 10) || 1,
+          description: description.trim() || 'Modern residential property available for rent.',
+          images: finalImages,
+          amenities: finalAmenities,
+          status,
+        });
 
-      setIsAddModalOpen(false);
-      // Reset form
-      setTitle('');
-      setLocation('');
-      setPrice('');
-      setDescription('');
-      setImagesList([]);
-      setSelectedAmenities([
-        '24/7 Security & CCTV',
-        'Dedicated Parking',
-        'High-Speed Wi-Fi',
-        'Borehole / 24/7 Water',
-      ]);
+        setIsAddModalOpen(false);
+        Alert.alert(
+          'Listing Updated!',
+          `"${title.trim()}" has been updated successfully.`
+        );
+      } else {
+        // Create new listing
+        const created = await addProperty({
+          landlord_id: landlordId,
+          hunter_id: null,
+          title: title.trim(),
+          description: description.trim() || 'Modern residential property available for rent.',
+          price: priceNum,
+          currency: 'KES',
+          location: location.trim(),
+          city: 'Nairobi',
+          latitude: -1.286389,
+          longitude: 36.817223,
+          images: finalImages,
+          bedrooms: parseInt(bedrooms, 10) || 2,
+          bathrooms: parseInt(bathrooms, 10) || 1,
+          amenities: finalAmenities,
+          status,
+          is_verified: false,
+          rating: 5.0,
+          review_count: 1,
+        });
 
-      Alert.alert(
-        'Property Listed!',
-        `"${created.title}" has been saved to the database and published for clients to view.`
-      );
+        setIsAddModalOpen(false);
+        Alert.alert(
+          'Property Listed!',
+          `"${created.title}" has been published for clients to view.`
+        );
+      }
     } catch (err: any) {
       // Error handled by store Alert
     }
+  };
+
+  const handleDeleteProperty = () => {
+    if (!editingPropertyId) return;
+    Alert.alert(
+      'Delete Listing',
+      `Are you sure you want to delete "${title}"? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteProperty(editingPropertyId);
+            setIsAddModalOpen(false);
+            Alert.alert('Listing Deleted', 'The property listing has been permanently removed.');
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -226,7 +294,7 @@ export default function PortfolioScreen() {
                 property={property}
                 tenant={null}
                 onPress={() => handlePropertyPress(property.id)}
-                onManage={() => handlePropertyPress(property.id)}
+                onManage={() => handleOpenEditModal(property)}
               />
             ))}
           </View>
@@ -245,7 +313,7 @@ export default function PortfolioScreen() {
         {/* Add New Property Button */}
         <TouchableOpacity
           style={styles.addButton}
-          onPress={() => setIsAddModalOpen(true)}
+          onPress={handleOpenAddModal}
           activeOpacity={0.7}
         >
           <Ionicons name="add" size={20} color={Colors.deepCocoa} />
@@ -255,12 +323,14 @@ export default function PortfolioScreen() {
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* ADD PROPERTY MODAL */}
+      {/* ADD / EDIT PROPERTY MODAL */}
       <Modal visible={isAddModalOpen} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>List New Property</Text>
+              <Text style={styles.modalTitle}>
+                {editingPropertyId ? 'Edit Property Listing' : 'List New Property'}
+              </Text>
               <TouchableOpacity onPress={() => setIsAddModalOpen(false)}>
                 <Ionicons name="close" size={24} color={Colors.deepCocoa} />
               </TouchableOpacity>
@@ -294,6 +364,25 @@ export default function PortfolioScreen() {
                 value={price}
                 onChangeText={setPrice}
               />
+
+              <Text style={styles.inputLabel}>Listing Status</Text>
+              <View style={{ flexDirection: 'row', gap: Spacing.xs, marginBottom: Spacing.sm }}>
+                {(['Available', 'Pending_Escrow', 'Rented'] as const).map((st) => {
+                  const isSel = status === st;
+                  const label = st === 'Available' ? 'Available' : st === 'Pending_Escrow' ? 'Pending Escrow' : 'Rented';
+                  return (
+                    <TouchableOpacity
+                      key={st}
+                      style={[styles.amenityChip, isSel && styles.amenityChipSelected]}
+                      onPress={() => setStatus(st)}
+                    >
+                      <Text style={[styles.amenityChipText, isSel && styles.amenityChipTextSelected]}>
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
 
               <View style={{ flexDirection: 'row', gap: Spacing.md }}>
                 <View style={{ flex: 1 }}>
@@ -418,11 +507,23 @@ export default function PortfolioScreen() {
 
               <TouchableOpacity
                 style={styles.confirmBtn}
-                onPress={handleCreateProperty}
+                onPress={handleSaveProperty}
                 activeOpacity={0.8}
               >
-                <Text style={styles.confirmBtnText}>Publish Property Listing</Text>
+                <Text style={styles.confirmBtnText}>
+                  {editingPropertyId ? 'Save Listing Changes' : 'Publish Property Listing'}
+                </Text>
               </TouchableOpacity>
+
+              {editingPropertyId && (
+                <TouchableOpacity
+                  style={[styles.confirmBtn, { backgroundColor: Colors.error, marginTop: -Spacing.xs }]}
+                  onPress={handleDeleteProperty}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.confirmBtnText}>Delete Listing</Text>
+                </TouchableOpacity>
+              )}
             </ScrollView>
           </View>
         </View>

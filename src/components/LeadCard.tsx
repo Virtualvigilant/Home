@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { Badge } from './Badge';
+import { getSinglePropertyImage, DEFAULT_PROPERTY_IMAGE } from '../lib/imageUtils';
 import { HunterLead } from '../lib/database.types';
 
 interface LeadCardProps {
@@ -27,6 +28,8 @@ export const LeadCard: React.FC<LeadCardProps> = ({
   const statusLabel = lead.status === 'New' ? 'New' : lead.status === 'Booked' ? 'Success' : 'Verified';
   const suffixText = lead.status === 'New' ? '(Sourced)' : lead.status === 'Booked' ? '(Booked)' : '(Verified)';
 
+  const leadImage = getSinglePropertyImage(property?.images);
+
   return (
     <TouchableOpacity
       style={styles.card}
@@ -38,7 +41,7 @@ export const LeadCard: React.FC<LeadCardProps> = ({
       </View>
       <View style={styles.content}>
         <Image
-          source={{ uri: imgError ? 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800' : property.images[0] }}
+          source={{ uri: imgError ? DEFAULT_PROPERTY_IMAGE : leadImage }}
           style={styles.thumbnail}
           contentFit="cover"
           transition={200}

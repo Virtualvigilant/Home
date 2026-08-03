@@ -35,6 +35,7 @@ interface AuthState {
   changeUserRole: (userId: string, newRole: UserRole) => void;
   toggleUserVerification: (userId: string) => void;
   requestRoleUpgrade: (requestedRole: UserRole) => void;
+  completeKycVerification: (idNumber: string, documentType: string) => void;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -444,6 +445,31 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const updatedList = state.usersList.map((u) =>
         u.id === state.user?.id ? updatedUser : u
       );
+      return {
+        user: updatedUser,
+        usersList: updatedList,
+      };
+    });
+  },
+
+  completeKycVerification: (idNumber, documentType) => {
+    set((state) => {
+      if (!state.user) return state;
+      const updatedUser: Profile = {
+        ...state.user,
+        verification_status: true,
+        bio: `Verified Scout • ${documentType.toUpperCase()} Verified (${idNumber})`,
+      };
+      const updatedList = state.usersList.map((u) =>
+        u.id === state.user?.id ? updatedUser : u
+      );
+      try {
+        supabase
+          .from('profiles')
+          .update({ verification_status: true, bio: updatedUser.bio })
+          .eq('id', state.user.id);
+      } catch (e) {}
+
       return {
         user: updatedUser,
         usersList: updatedList,

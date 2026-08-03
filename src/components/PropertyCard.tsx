@@ -10,6 +10,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { Badge } from './Badge';
+import { getSinglePropertyImage, DEFAULT_PROPERTY_IMAGE } from '../lib/imageUtils';
 import { Property } from '../lib/database.types';
 
 const CARD_WIDTH = Dimensions.get('window').width * 0.44;
@@ -38,9 +39,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({
     return `KES ${price}`;
   };
 
-  const propertyImage = property.images && property.images.length > 0 && property.images[0]
-    ? property.images[0]
-    : 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800';
+  const propertyImage = getSinglePropertyImage(property?.images);
 
   return (
     <TouchableOpacity
@@ -50,7 +49,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({
     >
       <View style={styles.imageContainer}>
         <Image
-          source={{ uri: imgError ? 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800' : propertyImage }}
+          source={{ uri: imgError ? DEFAULT_PROPERTY_IMAGE : propertyImage }}
           style={styles.image}
           contentFit="cover"
           transition={200}

@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
+import { getSinglePropertyImage, DEFAULT_PROPERTY_IMAGE } from '../lib/imageUtils';
 import { Property, Profile } from '../lib/database.types';
 
 interface PropertyListingCardProps {
@@ -19,14 +20,12 @@ export const PropertyListingCard: React.FC<PropertyListingCardProps> = ({
   onPress,
 }) => {
   const [imgError, setImgError] = useState(false);
-  const isRented = property.status === 'Rented';
+  const isRented = property?.status === 'Rented';
   const statusText = isRented
     ? `(Active Tenant)`
     : `(Vacant)`;
 
-  const propertyImage = property.images && property.images.length > 0 && property.images[0]
-    ? property.images[0]
-    : 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800';
+  const propertyImage = getSinglePropertyImage(property?.images);
 
   return (
     <TouchableOpacity
@@ -36,7 +35,7 @@ export const PropertyListingCard: React.FC<PropertyListingCardProps> = ({
     >
       <View style={styles.content}>
         <Image
-          source={{ uri: imgError ? 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800' : propertyImage }}
+          source={{ uri: imgError ? DEFAULT_PROPERTY_IMAGE : propertyImage }}
           style={styles.thumbnail}
           contentFit="cover"
           transition={200}

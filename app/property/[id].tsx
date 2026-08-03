@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
 import { usePropertyStore } from '../../src/store/propertyStore';
 import { mockUsers } from '../../src/data/mockData';
+import { getValidPropertyImages, DEFAULT_PROPERTY_IMAGE } from '../../src/lib/imageUtils';
 import { Badge } from '../../src/components/Badge';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -35,12 +36,13 @@ export default function PropertyDetailScreen() {
   } = usePropertyStore();
 
   const property = properties.find((p) => p.id === id) || properties[0];
-  const wishlisted = isWishlisted(property.id);
+  const wishlisted = property ? isWishlisted(property.id) : false;
 
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [isPhotoViewerOpen, setIsPhotoViewerOpen] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [showDescriptionMore, setShowDescriptionMore] = useState(false);
+  const [failedImages, setFailedImages] = useState<Record<number, boolean>>({});
 
   // Modals
   const [isTourModalOpen, setIsTourModalOpen] = useState(false);
@@ -60,7 +62,7 @@ export default function PropertyDetailScreen() {
     id: 'u3',
     display_name: 'Property Host',
     avatar_url: 'https://i.pravatar.cc/150?img=12',
-    location: property.location || 'Nairobi',
+    location: property?.location || 'Nairobi',
     bio: 'Verified property landlord listing on Home App.',
     phone: '+254 700 000 000',
     email: 'landlord@home.co.ke',
@@ -86,11 +88,11 @@ export default function PropertyDetailScreen() {
     updated_at: new Date().toISOString(),
   };
 
-  const landlord = mockUsers.find((u) => u.id === property.landlord_id) || defaultLandlord;
-  const hunter = mockUsers.find((u) => u.id === property.hunter_id) || (property.hunter_id ? defaultHunter : null);
+  const landlord = mockUsers.find((u) => u.id === property?.landlord_id) || defaultLandlord;
+  const hunter = mockUsers.find((u) => u.id === property?.hunter_id) || (property?.hunter_id ? defaultHunter : null);
 
   const formatPrice = (price: number) => {
-    return `KES ${price.toLocaleString()}`;
+    return `KES ${price?.toLocaleString() || '0'}`;
   };
 
   const getAmenityIcon = (amenity: string): any => {
@@ -114,10 +116,11 @@ export default function PropertyDetailScreen() {
   };
 
   const handleShare = () => {
-    Alert.alert('Share Property', `Link to "${property.title}" copied to clipboard!`);
+    Alert.alert('Share Property', `Link to "${property?.title || 'Property'}" copied to clipboard!`);
   };
 
   const handleConfirmTour = () => {
+    if (!property) return;
     bookTour(property.id, tourDate, tourNote);
     setTourBooked(true);
     setTimeout(() => {
@@ -131,6 +134,7 @@ export default function PropertyDetailScreen() {
   };
 
   const handleConfirmRent = () => {
+    if (!property) return;
     setRentProcessing(true);
     setTimeout(() => {
       const deposit = property.price;
@@ -161,7 +165,7 @@ export default function PropertyDetailScreen() {
           <Ionicons name="arrow-back" size={22} color={Colors.deepCocoa} />
         </TouchableOpacity>
         <Text style={styles.topBarTitle} numberOfLines={1}>
-          {property.title}
+          {property?.title || 'Property Detail'}
         </Text>
         <View style={styles.topRightButtons}>
           <TouchableOpacity
@@ -173,7 +177,7 @@ export default function PropertyDetailScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.circleButton, { marginLeft: Spacing.xs }]}
-            onPress={() => toggleWishlist(property.id)}
+            onPress={() => property && toggleWishlist(property.id)}
             activeOpacity={0.8}
           >
             <Ionicons
@@ -192,9 +196,7 @@ export default function PropertyDetailScreen() {
       >
         {/* Main Image Carousel */}
         {(() => {
-          const displayImages = property.images && property.images.length > 0 && property.images[0]
-            ? property.images
-            : ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800'];
+          const displayImages = getValidPropertyImages(property?.images);
 
           return (
             <View style={styles.carouselContainer}>
@@ -203,55 +205,56 @@ export default function PropertyDetailScreen() {
                 pagingEnabled
                 data={displayImages}
                 keyExtractor={(_, index) => index.toString()}
-            showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={(e) => {
-              const index = Math.round(
-                e.nativeEvent.contentOffset.x / SCREEN_WIDTH
-              );
-              setActiveImageIndex(index);
-            }}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                activeOpacity={0.95}
-                onPress={() => {
-                  setSelectedPhoto(item);
-                  setIsPhotoViewerOpen(true);
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={(e) => {
+                  const index = Math.round(
+                    e.nativeEvent.contentOffset.x / SCREEN_WIDTH
+                  );
+                  setActiveImageIndex(index);
                 }}
-              >
-                <Image
-                  source={{ uri: item }}
-                  style={styles.carouselImage}
-                  contentFit="cover"
-                  transition={200}
+                renderItem={({ item, index }) => (
+                  <TouchableOpacity
+                    activeOpacity={0.95}
+                    onPress={() => {
+                      setSelectedPhoto(failedImages[index] ? DEFAULT_PROPERTY_IMAGE : item);
+                      setIsPhotoViewerOpen(true);
+                    }}
+                  >
+                    <Image
+                      source={{ uri: failedImages[index] ? DEFAULT_PROPERTY_IMAGE : item }}
+                      style={styles.carouselImage}
+                      contentFit="cover"
+                      transition={200}
+                      onError={() => setFailedImages((prev) => ({ ...prev, [index]: true }))}
+                    />
+                  </TouchableOpacity>
+                )}
+              />
+
+              {/* Page Dots Indicator */}
+              {displayImages.length > 1 && (
+                <View style={styles.paginationBadge}>
+                  <Text style={styles.paginationText}>
+                    {activeImageIndex + 1} / {displayImages.length}
+                  </Text>
+                </View>
+              )}
+
+              {/* Verified Badge Overlay */}
+              {property?.is_verified && (
+                <View style={styles.verifiedBadgePos}>
+                  <Badge label="Verified by Hunter" variant="verified" />
+                </View>
+              )}
+
+              {/* Status Badge Overlay */}
+              <View style={styles.statusBadgePos}>
+                <Badge
+                  label={property?.status === 'Available' ? 'Available Now' : 'Rented'}
+                  variant={property?.status === 'Available' ? 'success' : 'pending'}
                 />
-              </TouchableOpacity>
-            )}
-          />
-
-          {/* Page Dots Indicator */}
-          {property.images.length > 1 && (
-            <View style={styles.paginationBadge}>
-              <Text style={styles.paginationText}>
-                {activeImageIndex + 1} / {property.images.length}
-              </Text>
+              </View>
             </View>
-          )}
-
-          {/* Verified Badge Overlay */}
-          {property.is_verified && (
-            <View style={styles.verifiedBadgePos}>
-              <Badge label="Verified by Hunter" variant="verified" />
-            </View>
-          )}
-
-          {/* Status Badge Overlay */}
-          <View style={styles.statusBadgePos}>
-            <Badge
-              label={property.status === 'Available' ? 'Available Now' : 'Rented'}
-              variant={property.status === 'Available' ? 'success' : 'pending'}
-            />
-          </View>
-        </View>
           );
         })()}
 

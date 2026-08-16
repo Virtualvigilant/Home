@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { supabase } from '../lib/supabase';
 
 export interface MoverJob {
   id: string;
@@ -31,9 +32,10 @@ interface MoverState {
   jobs: MoverJob[];
   loading: boolean;
 
-  acceptJob: (jobId: string) => void;
-  startGpsNavigation: (jobId: string) => void;
-  verifyCargoArrival: (jobId: string, checklist: { boxes_intact: boolean; furniture_unloaded: boolean; client_signoff: boolean }) => void;
+  fetchJobs: () => Promise<void>;
+  acceptJob: (jobId: string) => Promise<void>;
+  startGpsNavigation: (jobId: string) => Promise<void>;
+  verifyCargoArrival: (jobId: string, checklist: { boxes_intact: boolean; furniture_unloaded: boolean; client_signoff: boolean }) => Promise<void>;
   withdrawMpesa: (amount: number, phone: string) => Promise<void>;
 }
 
@@ -43,7 +45,56 @@ export const useMoverStore = create<MoverState>((set, get) => ({
   jobs: initialJobs,
   loading: false,
 
-  acceptJob: (jobId) => {
+  fetchJobs: async () => {
+    set({ loading: true });
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) {
+      set({ jobs: [], loading: false });
+      return;
+    }
+    const { data, error } = await supabase.from('bookings')
+      .select('*, service:services!inner(*)')
+      .eq('service.provider_id', authData.user.id)
+      .eq('service.type', 'Mover')
+      .order('created_at', { ascending: false });
+    if (error) {
+      set({ loading: false });
+      throw error;
+    }
+    const jobs = await Promise.all((data || []).map(async (booking: any) => {
+      const { data: profileRows } = await supabase.rpc('get_public_profile', { profile_id: booking.client_id });
+      const client = profileRows?.[0];
+      const status: MoverJob['status'] = booking.status === 'Completed' ? 'Completed'
+        : booking.status === 'In_Progress' ? 'En_Route'
+        : booking.status === 'Confirmed' ? 'Accepted' : 'Open';
+      return {
+        id: booking.id,
+        client_name: client?.display_name || 'Client',
+        client_avatar: client?.avatar_url || 'https://i.pravatar.cc/150?img=11',
+        client_phone: client?.phone || '',
+        from_address: 'Pickup address to be confirmed',
+        to_address: booking.notes || 'Destination to be confirmed',
+        neighborhood: '',
+        distance_km: 0,
+        est_duration_mins: 0,
+        pickup_lat: -1.286389,
+        pickup_lng: 36.817223,
+        dropoff_lat: -1.286389,
+        dropoff_lng: 36.817223,
+        move_in_date: booking.move_in_date,
+        move_in_time: 'Time to be confirmed',
+        cargo_description: booking.service.name,
+        fee: Number(booking.total_amount),
+        status,
+        payout_released: false,
+      } as MoverJob;
+    }));
+    set({ jobs, loading: false });
+  },
+
+  acceptJob: async (jobId) => {
+    const { error } = await supabase.from('bookings').update({ status: 'Confirmed' }).eq('id', jobId);
+    if (error) throw error;
     set((state) => ({
       jobs: state.jobs.map((j) =>
         j.id === jobId ? { ...j, status: 'Accepted' } : j
@@ -51,7 +102,9 @@ export const useMoverStore = create<MoverState>((set, get) => ({
     }));
   },
 
-  startGpsNavigation: (jobId) => {
+  startGpsNavigation: async (jobId) => {
+    const { error } = await supabase.from('bookings').update({ status: 'In_Progress' }).eq('id', jobId);
+    if (error) throw error;
     set((state) => ({
       jobs: state.jobs.map((j) =>
         j.id === jobId ? { ...j, status: 'En_Route' } : j
@@ -59,7 +112,12 @@ export const useMoverStore = create<MoverState>((set, get) => ({
     }));
   },
 
-  verifyCargoArrival: (jobId, checklist) => {
+  verifyCargoArrival: async (jobId, checklist) => {
+    const { error } = await supabase.from('bookings').update({
+      status: 'Completed',
+      notes: 'Mover recorded cargo arrival; awaiting client/payment confirmation',
+    }).eq('id', jobId);
+    if (error) throw error;
     set((state) => ({
       jobs: state.jobs.map((j) =>
         j.id === jobId
@@ -67,7 +125,7 @@ export const useMoverStore = create<MoverState>((set, get) => ({
               ...j,
               status: 'Arrived_Verified',
               cargo_checklist: checklist,
-              payout_released: true,
+              payout_released: false,
             }
           : j
       ),
@@ -75,6 +133,6 @@ export const useMoverStore = create<MoverState>((set, get) => ({
   },
 
   withdrawMpesa: async (amount, phone) => {
-    // Instant M-PESA payout simulation
+    throw new Error('M-PESA payouts require a configured server-side payment provider.');
   },
 }));

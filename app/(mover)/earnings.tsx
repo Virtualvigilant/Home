@@ -43,17 +43,14 @@ export default function EarningsScreen() {
     }
 
     setIsProcessing(true);
-    await withdrawMpesa(availableBalance, mpesaPhone);
-
-    setTimeout(() => {
+    try {
+      await withdrawMpesa(availableBalance, mpesaPhone);
       setIsProcessing(false);
       setIsWithdrawModalOpen(false);
-      const txRef = `MOVER_MPESA_${Math.floor(100000 + Math.random() * 900000)}`;
-      Alert.alert(
-        'Service Fee Payout Sent!',
-        `Ref: ${txRef}\nKES ${availableBalance.toLocaleString()} transferred instantly to M-PESA (${mpesaPhone}).`
-      );
-    }, 1200);
+    } catch (error: any) {
+      setIsProcessing(false);
+      Alert.alert('Payout Unavailable', error?.message || 'Unable to process this payout.');
+    }
   };
 
   return (

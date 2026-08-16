@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   ScrollView,
   FlatList,
   Text,
   StyleSheet,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FilterTabs, PropertyCard, SectionHeader, ServiceCategory } from '../../src/components';
@@ -19,7 +20,12 @@ export default function WishlistScreen() {
   const [activeTab, setActiveTab] = useState(0);
   const router = useRouter();
 
-  const { properties, wishlistIds, toggleWishlist, isWishlisted } = usePropertyStore();
+  const { properties, wishlistIds, toggleWishlist, isWishlisted, fetchProperties, fetchWishlist } = usePropertyStore();
+
+  useEffect(() => {
+    fetchProperties();
+    fetchWishlist().catch(() => undefined);
+  }, [fetchProperties, fetchWishlist]);
 
   const savedProperties = properties.filter((p) => wishlistIds.includes(p.id));
 
@@ -54,7 +60,9 @@ export default function WishlistScreen() {
                   <PropertyCard
                     property={item}
                     onPress={() => handlePropertyPress(item.id)}
-                    onWishlist={() => toggleWishlist(item.id)}
+                    onWishlist={() => toggleWishlist(item.id).catch((error) =>
+                      Alert.alert('Wishlist Error', error?.message || 'Unable to update your wishlist.')
+                    )}
                     isWishlisted={isWishlisted(item.id)}
                     showSavedBadge={true}
                   />
@@ -72,7 +80,7 @@ export default function WishlistScreen() {
             )}
 
             {/* Explore Services */}
-            <SectionHeader title="Explore Services" onSeeAll={() => {}} />
+            <SectionHeader title="Explore Services" />
             <FlatList
               horizontal
               data={serviceCategories}

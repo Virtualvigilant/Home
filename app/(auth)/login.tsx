@@ -22,7 +22,7 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
 
-  const { signIn, loading, error, clearError } = useAuthStore();
+  const { signIn, resetPassword, loading, error, clearError } = useAuthStore();
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -36,6 +36,20 @@ export default function LoginScreen() {
     } else if (!res.success) {
       Alert.alert('Sign In Error', res.error || 'Failed to sign in.');
     }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      Alert.alert('Email Required', 'Enter your email address, then tap Forgot Password again.');
+      return;
+    }
+    const result = await resetPassword(email);
+    Alert.alert(
+      result.success ? 'Check Your Email' : 'Reset Password Error',
+      result.success
+        ? 'Password reset instructions have been sent if an account exists for that email.'
+        : result.error || 'Unable to send reset instructions.'
+    );
   };
 
   const navigateByRole = (role: UserRole) => {
@@ -130,7 +144,7 @@ export default function LoginScreen() {
           {/* Forgot Password */}
           <TouchableOpacity
             style={styles.forgotPassBtn}
-            onPress={() => Alert.alert('Reset Password', 'Password reset instructions have been sent to your email.')}
+            onPress={handleForgotPassword}
           >
             <Text style={styles.forgotPassText}>Forgot Password?</Text>
           </TouchableOpacity>

@@ -5,6 +5,7 @@ import {
   FlatList,
   StyleSheet,
   Text,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,11 +21,18 @@ export default function HomesScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const router = useRouter();
 
-  const { properties, isWishlisted, toggleWishlist, fetchProperties } = usePropertyStore();
+  const { properties, isWishlisted, toggleWishlist, fetchProperties, fetchWishlist } = usePropertyStore();
 
   useEffect(() => {
     fetchProperties();
-  }, []);
+    fetchWishlist().catch(() => undefined);
+  }, [fetchProperties, fetchWishlist]);
+
+  const handleWishlist = (propertyId: string) => {
+    toggleWishlist(propertyId).catch((error) =>
+      Alert.alert('Wishlist Error', error?.message || 'Unable to update your wishlist.')
+    );
+  };
 
   const handleTabChange = (index: number) => {
     setActiveTab(index);
@@ -86,7 +94,6 @@ export default function HomesScreen() {
             {/* Popular Homes Section */}
             <SectionHeader
               title="Popular homes in Nairobi"
-              onSeeAll={() => {}}
             />
             <FlatList
               horizontal
@@ -96,7 +103,7 @@ export default function HomesScreen() {
                 <PropertyCard
                   property={item}
                   onPress={() => handlePropertyPress(item.id)}
-                  onWishlist={() => toggleWishlist(item.id)}
+                  onWishlist={() => handleWishlist(item.id)}
                   isWishlisted={isWishlisted(item.id)}
                 />
               )}
@@ -108,7 +115,6 @@ export default function HomesScreen() {
             <SectionHeader
               title="Great homes for your next move"
               subtitle="Plus, get Home credit when you book a featured property."
-              onSeeAll={() => {}}
             />
             <FlatList
               horizontal
@@ -118,7 +124,7 @@ export default function HomesScreen() {
                 <PropertyCard
                   property={item}
                   onPress={() => handlePropertyPress(item.id)}
-                  onWishlist={() => toggleWishlist(item.id)}
+                  onWishlist={() => handleWishlist(item.id)}
                   isWishlisted={isWishlisted(item.id)}
                 />
               )}

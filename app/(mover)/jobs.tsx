@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Modal,
   Alert,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -19,24 +20,33 @@ const TABS = ['Open Moving Gigs', 'My Accepted Jobs'];
 
 export default function JobsScreen() {
   const [activeTab, setActiveTab] = useState(0);
-  const { jobs, acceptJob, startGpsNavigation } = useMoverStore();
+  const { jobs, acceptJob, startGpsNavigation, fetchJobs } = useMoverStore();
+
+  useEffect(() => {
+    fetchJobs().catch((error) => Alert.alert('Jobs Error', error?.message || 'Unable to load moving jobs.'));
+  }, [fetchJobs]);
 
   // GPS Route Modal State
   const [selectedGpsJob, setSelectedGpsJob] = useState<MoverJob | null>(null);
   const [isGpsModalOpen, setIsGpsModalOpen] = useState(false);
 
-  const handleAccept = (job: MoverJob) => {
-    acceptJob(job.id);
-    Alert.alert(
-      'Hauling Gig Accepted!',
-      `You accepted the move for ${job.client_name}. Navigate via GPS on move-in day (${job.move_in_date}).`
-    );
+  const handleAccept = async (job: MoverJob) => {
+    try {
+      await acceptJob(job.id);
+      Alert.alert('Moving Job Accepted', `You accepted the move for ${job.client_name} on ${job.move_in_date}.`);
+    } catch (error: any) {
+      Alert.alert('Accept Failed', error?.message || 'Unable to accept this job.');
+    }
   };
 
-  const handleOpenGpsRoute = (job: MoverJob) => {
+  const handleOpenGpsRoute = async (job: MoverJob) => {
     setSelectedGpsJob(job);
-    startGpsNavigation(job.id);
-    setIsGpsModalOpen(true);
+    try {
+      await startGpsNavigation(job.id);
+      setIsGpsModalOpen(true);
+    } catch (error: any) {
+      Alert.alert('Navigation Update Failed', error?.message || 'Unable to start this job.');
+    }
   };
 
   const filteredJobs = activeTab === 0
@@ -182,10 +192,13 @@ export default function JobsScreen() {
 
             <TouchableOpacity
               style={styles.closeGpsBtn}
-              onPress={() => setIsGpsModalOpen(false)}
+              onPress={() => {
+                if (!selectedGpsJob?.to_address) return;
+                Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedGpsJob.to_address)}`);
+              }}
               activeOpacity={0.8}
             >
-              <Text style={styles.closeGpsBtnText}>Close Navigation Overlay</Text>
+              <Text style={styles.closeGpsBtnText}>Open Destination in Maps</Text>
             </TouchableOpacity>
           </View>
         </View>

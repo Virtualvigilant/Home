@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,11 @@ import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/co
 import { useMoverStore, MoverJob } from '../../src/store/moverStore';
 
 export default function ScheduleScreen() {
-  const { jobs, verifyCargoArrival } = useMoverStore();
+  const { jobs, verifyCargoArrival, fetchJobs } = useMoverStore();
+
+  useEffect(() => {
+    fetchJobs().catch((error) => Alert.alert('Schedule Error', error?.message || 'Unable to load scheduled moves.'));
+  }, [fetchJobs]);
 
   const [selectedJob, setSelectedJob] = useState<MoverJob | null>(null);
   const [isChecklistModalOpen, setIsChecklistModalOpen] = useState(false);
@@ -34,25 +38,25 @@ export default function ScheduleScreen() {
     setIsChecklistModalOpen(true);
   };
 
-  const handleConfirmArrival = () => {
+  const handleConfirmArrival = async () => {
     if (!boxesIntact || !furnitureUnloaded || !clientSignoff) {
-      Alert.alert('Incomplete Verification', 'Please complete all cargo verification checks before releasing payout.');
+      Alert.alert('Incomplete Verification', 'Please complete all cargo verification checks before recording delivery.');
       return;
     }
 
     if (!selectedJob) return;
 
-    verifyCargoArrival(selectedJob.id, {
-      boxes_intact: boxesIntact,
-      furniture_unloaded: furnitureUnloaded,
-      client_signoff: clientSignoff,
-    });
-
-    setIsChecklistModalOpen(false);
-    Alert.alert(
-      'Cargo Arrival Verified & Paid!',
-      `Cargo arrival for "${selectedJob.client_name}" verified.\nAutomated Service Fee of KES ${selectedJob.fee.toLocaleString()} has been released to your wallet!`
-    );
+    try {
+      await verifyCargoArrival(selectedJob.id, {
+        boxes_intact: boxesIntact,
+        furniture_unloaded: furnitureUnloaded,
+        client_signoff: clientSignoff,
+      });
+      setIsChecklistModalOpen(false);
+      Alert.alert('Cargo Arrival Recorded', 'Delivery completion was recorded. Payment remains pending server-side confirmation.');
+    } catch (error: any) {
+      Alert.alert('Update Failed', error?.message || 'Unable to record cargo arrival.');
+    }
   };
 
   return (
@@ -60,7 +64,7 @@ export default function ScheduleScreen() {
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Text style={styles.title}>Move-In Schedule & Verification</Text>
-          <Text style={styles.subtitle}>Verify cargo arrival on move-in day to trigger automated service payouts</Text>
+          <Text style={styles.subtitle}>Verify cargo arrival on move-in day and record delivery completion</Text>
         </View>
 
         {acceptedJobs.length === 0 ? (

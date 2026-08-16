@@ -24,7 +24,14 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Home to select photos for property, product, and verification submissions.",
+          "cameraPermission": "Allow Home to take property and product photos."
+        }
+      ]
     ]
   }
 }

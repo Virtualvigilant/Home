@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,12 +14,16 @@ import { useAuthStore } from '../../src/store/authStore';
 import { useRouter } from 'expo-router';
 
 export default function AdminDashboardScreen() {
-  const { user, usersList, signOut, setRole } = useAuthStore();
+  const { user, usersList, signOut, fetchUsers } = useAuthStore();
   const router = useRouter();
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
   const totalUsers = usersList.length;
   const pendingApprovals = usersList.filter(
-    (u) => u.role_approval_status === 'pending' || u.requested_role
+    (u) => u.role_approval_status === 'pending'
   ).length;
   const totalLandlords = usersList.filter((u) => u.role === 'landlord').length;
   const totalHunters = usersList.filter((u) => u.role === 'hunter').length;
@@ -62,32 +66,6 @@ export default function AdminDashboardScreen() {
               <Text style={styles.roleBadgeText}>Platform Administrator</Text>
             </View>
           </View>
-        </View>
-
-        {/* Role Quick Switch Demo Pill Bar */}
-        <View style={styles.demoSection}>
-          <Text style={styles.sectionHeading}>Preview Role Dashboards</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.demoScroll}>
-            {[
-              { role: 'client', label: 'Client View', path: '/(client)/(explore)/homes' },
-              { role: 'hunter', label: 'Hunter View', path: '/(hunter)/leads' },
-              { role: 'landlord', label: 'Landlord View', path: '/(landlord)/portfolio' },
-              { role: 'retailer', label: 'Retailer View', path: '/(retailer)/catalog' },
-              { role: 'mover', label: 'Mover View', path: '/(mover)/jobs' },
-            ].map((item) => (
-              <TouchableOpacity
-                key={item.role}
-                style={styles.demoChip}
-                onPress={() => {
-                  setRole(item.role as any);
-                  router.push(item.path as any);
-                }}
-              >
-                <Text style={styles.demoChipText}>{item.label}</Text>
-                <Ionicons name="open-outline" size={14} color={Colors.matteClay} />
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
         </View>
 
         {/* Pending Approvals Notice Banner */}

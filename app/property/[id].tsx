@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,8 @@ import {
   FlatList,
   Alert,
   TextInput,
+  Share,
+  Linking,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,9 +19,9 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
 import { usePropertyStore } from '../../src/store/propertyStore';
-import { mockUsers } from '../../src/data/mockData';
 import { getValidPropertyImages, DEFAULT_PROPERTY_IMAGE } from '../../src/lib/imageUtils';
 import { Badge } from '../../src/components/Badge';
+import { supabase } from '../../src/lib/supabase';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -33,9 +35,10 @@ export default function PropertyDetailScreen() {
     toggleWishlist,
     bookTour,
     rentProperty,
+    fetchProperties,
   } = usePropertyStore();
 
-  const property = properties.find((p) => p.id === id) || properties[0];
+  const property = properties.find((p) => p.id === id);
   const wishlisted = property ? isWishlisted(property.id) : false;
 
   const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -57,6 +60,22 @@ export default function PropertyDetailScreen() {
   const [rentSuccess, setRentSuccess] = useState(false);
 
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  const [landlordProfile, setLandlordProfile] = useState<any | null>(null);
+  const [hunterProfile, setHunterProfile] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (!property) fetchProperties();
+  }, [fetchProperties, property]);
+
+  useEffect(() => {
+    if (!property) return;
+    supabase.rpc('get_public_profile', { profile_id: property.landlord_id })
+      .then(({ data }) => setLandlordProfile(data?.[0] || null));
+    if (property.hunter_id) {
+      supabase.rpc('get_public_profile', { profile_id: property.hunter_id })
+        .then(({ data }) => setHunterProfile(data?.[0] || null));
+    }
+  }, [property?.id]);
 
   const defaultLandlord = {
     id: 'u3',
@@ -88,8 +107,8 @@ export default function PropertyDetailScreen() {
     updated_at: new Date().toISOString(),
   };
 
-  const landlord = mockUsers.find((u) => u.id === property?.landlord_id) || defaultLandlord;
-  const hunter = mockUsers.find((u) => u.id === property?.hunter_id) || (property?.hunter_id ? defaultHunter : null);
+  const landlord = landlordProfile || defaultLandlord;
+  const hunter = hunterProfile || (property?.hunter_id ? defaultHunter : null);
 
   const formatPrice = (price: number) => {
     return `KES ${price?.toLocaleString() || '0'}`;
@@ -115,43 +134,63 @@ export default function PropertyDetailScreen() {
     return 'checkmark-circle-outline';
   };
 
-  const handleShare = () => {
-    Alert.alert('Share Property', `Link to "${property?.title || 'Property'}" copied to clipboard!`);
+  const handleShare = async () => {
+    if (!property) return;
+    await Share.share({
+      title: property.title,
+      message: `View ${property.title} on Home: /property/${property.id}`,
+    });
   };
 
-  const handleConfirmTour = () => {
+  const handleConfirmTour = async () => {
     if (!property) return;
-    bookTour(property.id, tourDate, tourNote);
     setTourBooked(true);
-    setTimeout(() => {
+    try {
+      await bookTour(property.id, tourDate, tourNote);
       setTourBooked(false);
       setIsTourModalOpen(false);
       Alert.alert(
-        'Tour Scheduled!',
-        `Your viewing request for ${property.title} on ${tourDate} has been confirmed. The landlord/hunter will meet you at the property.`
+        'Viewing Requested',
+        `Your request for ${property.title} on ${tourDate} was sent. The property host must confirm it.`
       );
-    }, 800);
+    } catch (error: any) {
+      setTourBooked(false);
+      Alert.alert('Request Failed', error?.message || 'Unable to schedule this viewing.');
+    }
   };
 
-  const handleConfirmRent = () => {
+  const handleConfirmRent = async () => {
     if (!property) return;
     setRentProcessing(true);
-    setTimeout(() => {
+    try {
       const deposit = property.price;
-      const total = property.price + deposit + 1500; // Rent + Deposit + Escrow fee
-      rentProperty(property.id, total, `Paid via ${paymentMethod.toUpperCase()}`);
+      const total = property.price + deposit + 1500;
+      await rentProperty(property.id, total, `Preferred payment method: ${paymentMethod.toUpperCase()}`);
       setRentProcessing(false);
-      setRentSuccess(true);
-      setTimeout(() => {
-        setRentSuccess(false);
-        setIsRentModalOpen(false);
-        Alert.alert(
-          'Rent Escrow Activated!',
-          `Congratulations! Your payment for "${property.title}" is held safely in Home Escrow. You can inspect the keys upon move-in.`
-        );
-      }, 1000);
-    }, 1200);
+      setIsRentModalOpen(false);
+      Alert.alert(
+        'Rental Request Created',
+        `Your request for "${property.title}" was created. No payment has been charged; complete payment only after the host confirms and a secure payment prompt is issued.`
+      );
+    } catch (error: any) {
+      setRentProcessing(false);
+      Alert.alert('Request Failed', error?.message || 'Unable to create this rental request.');
+    }
   };
+
+  if (!property) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl }}>
+          <Ionicons name="home-outline" size={48} color={Colors.textTertiary} />
+          <Text style={[styles.sectionHeading, { marginTop: Spacing.md }]}>Property not found</Text>
+          <TouchableOpacity style={styles.confirmBtn} onPress={() => router.back()}>
+            <Text style={styles.confirmBtnText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -177,7 +216,9 @@ export default function PropertyDetailScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.circleButton, { marginLeft: Spacing.xs }]}
-            onPress={() => property && toggleWishlist(property.id)}
+            onPress={() => toggleWishlist(property.id).catch((error) =>
+              Alert.alert('Wishlist Error', error?.message || 'Unable to update your wishlist.')
+            )}
             activeOpacity={0.8}
           >
             <Ionicons
@@ -430,7 +471,7 @@ export default function PropertyDetailScreen() {
         >
           <Ionicons name="key-outline" size={20} color={Colors.white} />
           <Text style={styles.rentButtonText}>
-            {property.status === 'Rented' ? 'Already Rented' : 'Rent with Escrow'}
+            {property.status === 'Rented' ? 'Already Rented' : 'Request to Rent'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -514,7 +555,7 @@ export default function PropertyDetailScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Rent with Escrow Protection</Text>
+              <Text style={styles.modalTitle}>Request Rental with Escrow</Text>
               <TouchableOpacity onPress={() => setIsRentModalOpen(false)}>
                 <Ionicons name="close" size={24} color={Colors.deepCocoa} />
               </TouchableOpacity>
@@ -594,7 +635,7 @@ export default function PropertyDetailScreen() {
               activeOpacity={0.8}
             >
               <Text style={styles.confirmBtnText}>
-                {rentProcessing ? 'Processing Payment...' : rentSuccess ? 'Escrow Activated!' : 'Deposit into Escrow'}
+                {rentProcessing ? 'Creating Request...' : 'Submit Rental Request'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -627,7 +668,8 @@ export default function PropertyDetailScreen() {
               style={[styles.confirmBtn, { backgroundColor: Colors.badgeSuccess, marginBottom: Spacing.sm }]}
               onPress={() => {
                 setIsContactModalOpen(false);
-                Alert.alert('Phone Call', `Calling ${landlord.display_name} at ${landlord.phone}...`);
+                if (landlord.phone) Linking.openURL(`tel:${String(landlord.phone).replace(/\s/g, '')}`);
+                else Alert.alert('Phone Unavailable', 'Use in-app messaging to contact this property host.');
               }}
             >
               <Ionicons name="call" size={18} color={Colors.white} style={{ marginRight: 8 }} />
@@ -638,7 +680,7 @@ export default function PropertyDetailScreen() {
               style={[styles.confirmBtn, { backgroundColor: Colors.matteClay }]}
               onPress={() => {
                 setIsContactModalOpen(false);
-                router.push('/(client)/messages');
+                router.push(`/messages/${property.landlord_id}`);
               }}
             >
               <Ionicons name="chatbubble" size={18} color={Colors.white} style={{ marginRight: 8 }} />

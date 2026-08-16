@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
 import { supabase } from '../../src/lib/supabase';
 import { useAuthStore } from '../../src/store/authStore';
+import { useRouter } from 'expo-router';
 
 interface Conversation {
   id: string;
@@ -27,6 +28,7 @@ export default function MessagesScreen() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(false);
   const { user } = useAuthStore();
+  const router = useRouter();
 
   useEffect(() => {
     const fetchMessages = async () => {
@@ -51,12 +53,26 @@ export default function MessagesScreen() {
                 avatar: 'https://i.pravatar.cc/150?img=11',
                 lastMessage: msg.content,
                 time: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                unread: msg.read_at ? 0 : 1,
+                unread: msg.receiver_id === user.id && !msg.read_at ? 1 : 0,
                 role: 'User',
               };
+            } else if (msg.receiver_id === user.id && !msg.read_at) {
+              convMap[partnerId].unread += 1;
             }
           });
-          setConversations(Object.values(convMap));
+          const conversationsWithProfiles = await Promise.all(
+            Object.values(convMap).map(async (conversation) => {
+              const { data: rows } = await supabase.rpc('get_public_profile', { profile_id: conversation.id });
+              const profile = rows?.[0];
+              return profile ? {
+                ...conversation,
+                name: profile.display_name,
+                avatar: profile.avatar_url || conversation.avatar,
+                role: profile.role,
+              } : conversation;
+            })
+          );
+          setConversations(conversationsWithProfiles);
         } else {
           setConversations([]);
         }
@@ -71,7 +87,11 @@ export default function MessagesScreen() {
   }, [user]);
 
   const renderConversation = ({ item }: { item: Conversation }) => (
-    <TouchableOpacity style={styles.conversationCard} activeOpacity={0.7}>
+    <TouchableOpacity
+      style={styles.conversationCard}
+      activeOpacity={0.7}
+      onPress={() => router.push(`/messages/${item.id}`)}
+    >
       <Image
         source={{ uri: item.avatar }}
         style={styles.avatar}

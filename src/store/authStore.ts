@@ -1,479 +1,374 @@
 import { create } from 'zustand';
-import { UserRole, Profile } from '../lib/database.types';
-import { mockUsers } from '../data/mockData';
+import { Session } from '@supabase/supabase-js';
+import { ApprovalStatus, Profile, UserRole } from '../lib/database.types';
 import { supabase } from '../lib/supabase';
 
+const SPECIAL_ROLES: UserRole[] = ['hunter', 'landlord', 'retailer', 'mover'];
+
+type AuthResult = {
+  success: boolean;
+  role?: UserRole;
+  requiresEmailConfirmation?: boolean;
+  error?: string;
+};
+
 interface AuthState {
+  initialized: boolean;
   isAuthenticated: boolean;
   user: Profile | null;
   role: UserRole;
-  session: any | null;
+  session: Session | null;
   loading: boolean;
+  usersLoading: boolean;
   error: string | null;
-
-  // Admin managed state
   usersList: Profile[];
 
-  setRole: (role: UserRole) => void;
   setUser: (user: Profile | null) => void;
   clearError: () => void;
   checkSession: () => Promise<void>;
-
-  signIn: (email: string, password: string) => Promise<{ success: boolean; role?: UserRole; error?: string }>;
+  fetchUsers: () => Promise<void>;
+  refreshProfile: () => Promise<Profile | null>;
+  signIn: (email: string, password: string) => Promise<AuthResult>;
   signUp: (params: {
     email: string;
     password: string;
     name: string;
     phone?: string;
     requestedRole?: UserRole;
-  }) => Promise<{ success: boolean; error?: string }>;
+  }) => Promise<AuthResult>;
+  resetPassword: (email: string) => Promise<AuthResult>;
   signOut: () => Promise<void>;
 
-  // Admin Management Actions
-  approveRoleRequest: (userId: string, assignedRole?: UserRole) => void;
-  rejectRoleRequest: (userId: string) => void;
-  changeUserRole: (userId: string, newRole: UserRole) => void;
-  toggleUserVerification: (userId: string) => void;
-  requestRoleUpgrade: (requestedRole: UserRole) => void;
-  completeKycVerification: (idNumber: string, documentType: string) => void;
+  approveRoleRequest: (userId: string, assignedRole?: UserRole) => Promise<AuthResult>;
+  rejectRoleRequest: (userId: string) => Promise<AuthResult>;
+  changeUserRole: (userId: string, newRole: UserRole) => Promise<AuthResult>;
+  toggleUserVerification: (userId: string) => Promise<AuthResult>;
+  requestRoleUpgrade: (requestedRole: UserRole) => Promise<AuthResult>;
+  completeKycVerification: (idNumber: string, documentType: string, documentPath: string) => Promise<AuthResult>;
+}
+
+function messageFromError(error: unknown, fallback: string) {
+  if (typeof error === 'string' && error.trim()) return error;
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = String((error as { message?: unknown }).message || '').trim();
+    if (message) return message;
+  }
+  return fallback;
+}
+
+function normalizeProfile(profile: Record<string, any>): Profile {
+  return {
+    ...profile,
+    role: (profile.role || 'client') as UserRole,
+    requested_role: (profile.requested_role || null) as UserRole | null,
+    role_approval_status: (profile.role_approval_status || 'approved') as ApprovalStatus,
+    verification_status: Boolean(profile.verification_status),
+  } as Profile;
+}
+
+async function loadProfile(userId: string): Promise<Profile> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', userId)
+    .single();
+
+  if (error || !data) {
+    throw new Error(
+      messageFromError(error, 'Your account profile could not be loaded. Please contact support.')
+    );
+  }
+
+  return normalizeProfile(data);
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
+  initialized: false,
   isAuthenticated: false,
   user: null,
   role: 'client',
   session: null,
   loading: false,
+  usersLoading: false,
   error: null,
+  usersList: [],
 
-  usersList: mockUsers,
-
-  setRole: (role) => {
-    const currentUser = get().user;
-    const userForRole = get().usersList.find((u) => u.role === role) || {
-      ...currentUser,
-      id: currentUser?.id || `user_${role}`,
-      email: currentUser?.email || `${role}@example.com`,
-      display_name: currentUser?.display_name || 'User',
-      role,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as Profile;
-
-    set({ role, user: userForRole });
-  },
-
-  setUser: (user) => set({ user, role: user?.role || 'client' }),
+  setUser: (user) => set({
+    user,
+    role: user?.role || 'client',
+    isAuthenticated: Boolean(user),
+  }),
   clearError: () => set({ error: null }),
 
   checkSession: async () => {
+    set({ loading: true });
     try {
-      set({ loading: true });
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data, error } = await supabase.auth.getSession();
+      if (error) throw error;
 
-      if (session?.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-
-        if (profile) {
-          set({
-            isAuthenticated: true,
-            user: profile as Profile,
-            role: (profile.role as UserRole) || 'client',
-            session,
-            loading: false,
-          });
-          return;
-        }
+      if (!data.session?.user) {
+        set({
+          initialized: true,
+          isAuthenticated: false,
+          user: null,
+          role: 'client',
+          session: null,
+          loading: false,
+        });
+        return;
       }
-      set({ loading: false });
-    } catch (err) {
-      set({ loading: false });
+
+      const profile = await loadProfile(data.session.user.id);
+      set({
+        initialized: true,
+        isAuthenticated: true,
+        user: profile,
+        role: profile.role,
+        session: data.session,
+        loading: false,
+        error: null,
+      });
+    } catch (error) {
+      const message = messageFromError(error, 'Unable to restore your session. Please sign in again.');
+      await supabase.auth.signOut().catch(() => undefined);
+      set({
+        initialized: true,
+        isAuthenticated: false,
+        user: null,
+        role: 'client',
+        session: null,
+        loading: false,
+        error: message,
+      });
     }
+  },
+
+  refreshProfile: async () => {
+    const userId = get().session?.user.id;
+    if (!userId) return null;
+    try {
+      const profile = await loadProfile(userId);
+      set({ user: profile, role: profile.role });
+      return profile;
+    } catch (error) {
+      set({ error: messageFromError(error, 'Unable to refresh your profile.') });
+      return null;
+    }
+  },
+
+  fetchUsers: async () => {
+    if (get().role !== 'admin') return;
+    set({ usersLoading: true });
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      set({
+        usersLoading: false,
+        error: messageFromError(error, 'Unable to load registered users.'),
+      });
+      return;
+    }
+
+    set({ usersList: (data || []).map(normalizeProfile), usersLoading: false });
   },
 
   signIn: async (email, password) => {
     set({ loading: true, error: null });
-
+    const cleanEmail = email.trim().toLowerCase();
     try {
-      const lowerEmail = email.toLowerCase().trim();
-
-      // 1. Try Supabase Auth
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: cleanEmail,
         password,
       });
-
-      if (!error && data.session && data.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', data.user.id)
-          .single();
-
-        const userRole: UserRole = (profile?.role as UserRole) ||
-          (data.user.user_metadata?.role as UserRole) ||
-          (lowerEmail === 'admin@email.com' ? 'admin' : 'client');
-
-        const userProfile: Profile = profile || {
-          id: data.user.id,
-          email: data.user.email || email,
-          display_name: data.user.user_metadata?.display_name || email.split('@')[0],
-          avatar_url: 'https://i.pravatar.cc/150?img=11',
-          phone: data.user.user_metadata?.phone || '+254 712 345 678',
-          role: userRole,
-          verification_status: true,
-          location: 'Nairobi',
-          city: 'Nairobi',
-          bio: 'Home app member',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-
-        set({
-          isAuthenticated: true,
-          user: userProfile,
-          role: userRole,
-          session: data.session,
-          loading: false,
-        });
-        return { success: true, role: userRole };
+      if (error || !data.session || !data.user) {
+        throw error || new Error('Sign in failed. Please check your credentials.');
       }
 
-      // 2. Fallback DB lookup by email
-      const matchedUser = get().usersList.find(
-        (u) => u.email.toLowerCase() === lowerEmail
-      );
-
-      const targetRole: UserRole = lowerEmail === 'admin@email.com'
-        ? 'admin'
-        : matchedUser?.role || 'client';
-
-      const demoUser: Profile = matchedUser || {
-        id: `u_${Date.now()}`,
-        email,
-        display_name: email.split('@')[0] || 'User',
-        avatar_url: 'https://i.pravatar.cc/150?img=11',
-        phone: '+254 712 345 678',
-        role: targetRole,
-        verification_status: true,
-        location: 'Nairobi',
-        city: 'Nairobi',
-        bio: 'Home app member',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
+      const profile = await loadProfile(data.user.id);
       set({
+        initialized: true,
         isAuthenticated: true,
-        user: demoUser,
-        role: targetRole,
-        session: null,
+        user: profile,
+        role: profile.role,
+        session: data.session,
         loading: false,
+        error: null,
       });
-
-      return { success: true, role: targetRole };
-    } catch (err: any) {
-      const lowerEmail = email.toLowerCase().trim();
-      const targetRole: UserRole = lowerEmail === 'admin@email.com' ? 'admin' : 'client';
-      const fallbackUser: Profile = {
-        id: `u_${Date.now()}`,
-        email,
-        display_name: email.split('@')[0] || 'User',
-        avatar_url: 'https://i.pravatar.cc/150?img=11',
-        phone: '+254 712 345 678',
-        role: targetRole,
-        verification_status: true,
-        location: 'Nairobi',
-        city: 'Nairobi',
-        bio: 'Home app member',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      set({
-        isAuthenticated: true,
-        user: fallbackUser,
-        role: targetRole,
-        session: null,
-        loading: false,
-      });
-
-      return { success: true, role: targetRole };
+      return { success: true, role: profile.role };
+    } catch (error) {
+      const rawMessage = messageFromError(error, 'Unable to sign in. Please try again.');
+      const message = /invalid login credentials/i.test(rawMessage)
+        ? 'Incorrect email or password.'
+        : rawMessage;
+      set({ loading: false, error: message });
+      return { success: false, error: message };
     }
   },
 
-  signUp: async ({ email, password, name, phone, requestedRole }) => {
+  signUp: async ({ email, password, name, phone, requestedRole = 'client' }) => {
     set({ loading: true, error: null });
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPhone = phone?.trim() || null;
+    const requestedSpecialRole = SPECIAL_ROLES.includes(requestedRole) ? requestedRole : null;
 
     try {
-      // Everyone signs up as a normal user ('client')
-      const initialRole: UserRole = 'client';
-      const isRequestingSpecialRole = requestedRole && requestedRole !== 'client';
-      const cleanPhone = phone && phone.trim() ? phone.trim() : null;
-      const cleanEmail = email.trim().toLowerCase();
-
-      // 1. Register with Supabase Auth
       const { data, error } = await supabase.auth.signUp({
         email: cleanEmail,
         password,
         options: {
           data: {
             display_name: name.trim(),
-            role: initialRole,
-            requested_role: isRequestingSpecialRole ? requestedRole : null,
             phone: cleanPhone,
+            requested_role: requestedSpecialRole,
           },
         },
       });
-
-      console.log('Supabase Auth signUp response:', { user: data?.user, session: data?.session, error });
-
-      if (error) {
-        let errorMsg = typeof error === 'string' ? error : (error?.message || (error as any)?.error_description || '');
-        if (!errorMsg || errorMsg === '{}') {
-          errorMsg = 'Failed to register user in Supabase Auth.';
-        }
-        if (errorMsg.toLowerCase().includes('already registered') || errorMsg.toLowerCase().includes('already exists')) {
-          errorMsg = 'An account with this email address already exists. Please sign in instead.';
-        } else if (errorMsg.toLowerCase().includes('database error') || errorMsg.toLowerCase().includes('trigger')) {
-          errorMsg = 'Supabase Database Trigger Error: Please execute the updated migration SQL (supabase/migrations/001_initial_schema.sql) in your Supabase Dashboard SQL Editor to apply database fixes.';
-        }
-        console.error('Supabase Auth error:', errorMsg);
-        set({ loading: false, error: errorMsg });
-        return { success: false, error: errorMsg };
+      if (error) throw error;
+      if (!data.user || (Array.isArray(data.user.identities) && data.user.identities.length === 0)) {
+        throw new Error('An account with this email address already exists. Please sign in instead.');
       }
 
-      // Detect if user already exists (Supabase returns user object with identities: [] if already registered)
-      if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-        const existingUserMsg = 'An account with this email address already exists. Please sign in instead.';
-        console.warn(existingUserMsg);
-        set({ loading: false, error: existingUserMsg });
-        return { success: false, error: existingUserMsg };
+      if (!data.session) {
+        set({
+          initialized: true,
+          isAuthenticated: false,
+          user: null,
+          role: 'client',
+          session: null,
+          loading: false,
+        });
+        return { success: true, role: 'client', requiresEmailConfirmation: true };
       }
 
-      const newUserId = data?.user?.id || `user_${Date.now()}`;
-
-      const newProfile: Profile = {
-        id: newUserId,
-        email: cleanEmail,
-        display_name: name.trim(),
-        avatar_url: 'https://i.pravatar.cc/150?img=11',
-        phone: cleanPhone || '+254 712 345 678',
-        role: initialRole, // Default normal user role
-        requested_role: isRequestingSpecialRole ? requestedRole : null,
-        role_approval_status: isRequestingSpecialRole ? 'pending' : 'approved',
-        verification_status: false,
-        location: 'Nairobi',
-        city: 'Nairobi',
-        bio: isRequestingSpecialRole
-          ? `Normal user — Pending approval for ${requestedRole} role`
-          : 'Normal client user',
-        created_at: new Date().toISOString().split('T')[0],
-        updated_at: new Date().toISOString().split('T')[0],
-      };
-
-      // 2. Safely attempt direct profile upsert (ensures row is created even if DB trigger is unapplied)
-      const { error: upsertErr } = await supabase.from('profiles').upsert(
-        {
-          id: newUserId,
-          email: cleanEmail,
-          display_name: name.trim(),
-          avatar_url: 'https://i.pravatar.cc/150?img=11',
-          phone: cleanPhone,
-          role: initialRole,
-          verification_status: false,
-          location: 'Nairobi',
-          city: 'Nairobi',
-          bio: 'Normal client user',
-        },
-        { onConflict: 'id' }
-      );
-      if (upsertErr) {
-        console.warn('Direct profile upsert warning:', upsertErr.message);
-      }
-
-      set((state) => ({
-        usersList: [newProfile, ...state.usersList.filter(u => u.id !== newUserId)],
+      const profile = await loadProfile(data.user.id);
+      set({
+        initialized: true,
         isAuthenticated: true,
-        user: newProfile,
-        role: initialRole,
-        session: data?.session || null,
+        user: profile,
+        role: 'client',
+        session: data.session,
         loading: false,
         error: null,
-      }));
-
-      return { success: true };
-    } catch (err: any) {
-      let errMsg = typeof err === 'string' ? err : err?.message;
-      if (!errMsg || typeof errMsg !== 'string' || errMsg === '{}') {
-        errMsg = 'An unexpected error occurred during signup.';
-      }
-      console.error('SignUp catch error:', errMsg);
-      set({ loading: false, error: errMsg });
-      return { success: false, error: errMsg };
+      });
+      return { success: true, role: 'client' };
+    } catch (error) {
+      const rawMessage = messageFromError(error, 'Unable to create your account.');
+      const message = /already registered|already exists/i.test(rawMessage)
+        ? 'An account with this email address already exists. Please sign in instead.'
+        : rawMessage;
+      set({ loading: false, error: message });
+      return { success: false, error: message };
     }
+  },
+
+  resetPassword: async (email) => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) return { success: false, error: 'Enter your email address first.' };
+    set({ loading: true, error: null });
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail);
+    if (error) {
+      const message = messageFromError(error, 'Unable to send reset instructions.');
+      set({ loading: false, error: message });
+      return { success: false, error: message };
+    }
+    set({ loading: false });
+    return { success: true };
   },
 
   signOut: async () => {
     set({ loading: true });
-    try {
-      await supabase.auth.signOut();
-    } catch (e) {
-      // Ignore
-    }
+    await supabase.auth.signOut().catch(() => undefined);
     set({
+      initialized: true,
       isAuthenticated: false,
       user: null,
       role: 'client',
       session: null,
+      usersList: [],
       loading: false,
+      error: null,
     });
   },
 
-  // ADMIN ACTIONS
-  approveRoleRequest: (userId, assignedRole) => {
-    set((state) => {
-      const updatedList = state.usersList.map((u) => {
-        if (u.id === userId) {
-          const finalRole = assignedRole || u.requested_role || u.role;
-          // Async update Supabase DB profile if connected
-          supabase
-            .from('profiles')
-            .update({ role: finalRole, verification_status: true })
-            .eq('id', userId);
-
-          return {
-            ...u,
-            role: finalRole,
-            role_approval_status: 'approved' as const,
-            verification_status: true,
-            bio: `Admin Approved ${finalRole.toUpperCase()} member`,
-            updated_at: new Date().toISOString().split('T')[0],
-          };
-        }
-        return u;
-      });
-
-      const activeUser = state.user?.id === userId
-        ? updatedList.find((u) => u.id === userId) || state.user
-        : state.user;
-
-      return {
-        usersList: updatedList,
-        user: activeUser,
-        role: activeUser ? activeUser.role : state.role,
-      };
+  approveRoleRequest: async (userId, assignedRole) => {
+    const target = get().usersList.find((item) => item.id === userId);
+    const finalRole = assignedRole || target?.requested_role;
+    if (!finalRole || !SPECIAL_ROLES.includes(finalRole)) {
+      return { success: false, error: 'Select a valid requested role.' };
+    }
+    const { error } = await supabase.rpc('admin_set_user_access', {
+      target_user_id: userId,
+      target_role: finalRole,
+      approval: 'approved',
     });
+    if (error) return { success: false, error: messageFromError(error, 'Approval failed.') };
+    await get().fetchUsers();
+    return { success: true, role: finalRole };
   },
 
-  rejectRoleRequest: (userId) => {
-    set((state) => ({
-      usersList: state.usersList.map((u) =>
-        u.id === userId
-          ? {
-              ...u,
-              role_approval_status: 'rejected' as const,
-              updated_at: new Date().toISOString().split('T')[0],
-            }
-          : u
-      ),
-    }));
+  rejectRoleRequest: async (userId) => {
+    const { error } = await supabase.rpc('admin_set_user_access', {
+      target_user_id: userId,
+      target_role: 'client',
+      approval: 'rejected',
+    });
+    if (error) return { success: false, error: messageFromError(error, 'Rejection failed.') };
+    await get().fetchUsers();
+    return { success: true, role: 'client' };
   },
 
-  changeUserRole: (userId, newRole) => {
-    set((state) => {
-      // Update Supabase DB profile
-      supabase
-        .from('profiles')
-        .update({ role: newRole, verification_status: true })
-        .eq('id', userId);
-
-      const updatedList = state.usersList.map((u) =>
-        u.id === userId
-          ? {
-              ...u,
-              role: newRole,
-              role_approval_status: 'approved' as const,
-              verification_status: true,
-              updated_at: new Date().toISOString().split('T')[0],
-            }
-          : u
-      );
-
-      const activeUser = state.user?.id === userId
-        ? updatedList.find((u) => u.id === userId) || state.user
-        : state.user;
-
-      return {
-        usersList: updatedList,
-        user: activeUser,
-        role: activeUser ? activeUser.role : state.role,
-      };
+  changeUserRole: async (userId, newRole) => {
+    const approval = newRole === 'client' ? 'approved' : 'approved';
+    const { error } = await supabase.rpc('admin_set_user_access', {
+      target_user_id: userId,
+      target_role: newRole,
+      approval,
     });
+    if (error) return { success: false, error: messageFromError(error, 'Role update failed.') };
+    await get().fetchUsers();
+    return { success: true, role: newRole };
   },
 
-  toggleUserVerification: (userId) => {
-    set((state) => {
-      const targetUser = state.usersList.find((u) => u.id === userId);
-      const nextStatus = !targetUser?.verification_status;
-      
-      supabase
-        .from('profiles')
-        .update({ verification_status: nextStatus })
-        .eq('id', userId);
-
-      return {
-        usersList: state.usersList.map((u) =>
-          u.id === userId ? { ...u, verification_status: nextStatus } : u
-        ),
-      };
+  toggleUserVerification: async (userId) => {
+    const target = get().usersList.find((item) => item.id === userId);
+    if (!target) return { success: false, error: 'User not found.' };
+    const { error } = await supabase.rpc('admin_set_user_verification', {
+      target_user_id: userId,
+      verified: !target.verification_status,
     });
+    if (error) return { success: false, error: messageFromError(error, 'Verification update failed.') };
+    await get().fetchUsers();
+    return { success: true };
   },
 
-  requestRoleUpgrade: (requestedRole) => {
-    set((state) => {
-      if (!state.user) return state;
-      const updatedUser: Profile = {
-        ...state.user,
-        requested_role: requestedRole,
-        role_approval_status: 'pending',
-      };
-      const updatedList = state.usersList.map((u) =>
-        u.id === state.user?.id ? updatedUser : u
-      );
-      return {
-        user: updatedUser,
-        usersList: updatedList,
-      };
+  requestRoleUpgrade: async (requestedRole) => {
+    const user = get().user;
+    if (!user || !SPECIAL_ROLES.includes(requestedRole)) {
+      return { success: false, error: 'Sign in and select a valid role.' };
+    }
+    const { error } = await supabase.rpc('request_role_upgrade', {
+      desired_role: requestedRole,
     });
+    if (error) return { success: false, error: messageFromError(error, 'Role request failed.') };
+    await get().refreshProfile();
+    return { success: true, role: 'client' };
   },
 
-  completeKycVerification: (idNumber, documentType) => {
-    set((state) => {
-      if (!state.user) return state;
-      const updatedUser: Profile = {
-        ...state.user,
-        verification_status: true,
-        bio: `Verified Scout • ${documentType.toUpperCase()} Verified (${idNumber})`,
-      };
-      const updatedList = state.usersList.map((u) =>
-        u.id === state.user?.id ? updatedUser : u
-      );
-      try {
-        supabase
-          .from('profiles')
-          .update({ verification_status: true, bio: updatedUser.bio })
-          .eq('id', state.user.id);
-      } catch (e) {}
-
-      return {
-        user: updatedUser,
-        usersList: updatedList,
-      };
+  completeKycVerification: async (idNumber, documentType, documentPath) => {
+    const user = get().user;
+    if (!user) return { success: false, error: 'You must be signed in.' };
+    const { error } = await supabase.from('kyc_submissions').insert({
+      user_id: user.id,
+      document_type: documentType,
+      id_number: idNumber,
+      document_path: documentPath,
+      status: 'pending',
     });
+    if (error) return { success: false, error: messageFromError(error, 'Document submission failed.') };
+    await get().refreshProfile();
+    return { success: true };
   },
 }));

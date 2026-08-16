@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,11 @@ import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/co
 import { useRetailerStore, RetailerOrder } from '../../src/store/retailerStore';
 
 export default function OrdersScreen() {
-  const { orders, coordinateScoutDropoff, confirmClientSignoff } = useRetailerStore();
+  const { orders, coordinateScoutDropoff, confirmClientSignoff, fetchOrders } = useRetailerStore();
+
+  useEffect(() => {
+    fetchOrders().catch((error) => Alert.alert('Orders Error', error?.message || 'Unable to load orders.'));
+  }, [fetchOrders]);
 
   const [selectedOrder, setSelectedOrder] = useState<RetailerOrder | null>(null);
   const [isScoutModalOpen, setIsScoutModalOpen] = useState(false);
@@ -29,9 +33,14 @@ export default function OrdersScreen() {
     setIsScoutModalOpen(true);
   };
 
-  const handleSaveScoutCoordination = () => {
+  const handleSaveScoutCoordination = async () => {
     if (!selectedOrder) return;
-    coordinateScoutDropoff(selectedOrder.id, scoutName, scoutNotes);
+    try {
+      await coordinateScoutDropoff(selectedOrder.id, scoutName, scoutNotes);
+    } catch (error: any) {
+      Alert.alert('Update Failed', error?.message || 'Unable to update delivery coordination.');
+      return;
+    }
     setIsScoutModalOpen(false);
     Alert.alert(
       'Drop-Off Coordinated!',
@@ -39,12 +48,13 @@ export default function OrdersScreen() {
     );
   };
 
-  const handleConfirmSignoff = (order: RetailerOrder) => {
-    confirmClientSignoff(order.id);
-    Alert.alert(
-      'Payment Released from Escrow!',
-      `Client "${order.client_name}" signed off on delivery. KES ${order.total_amount.toLocaleString()} has been released to your payout balance!`
-    );
+  const handleConfirmSignoff = async (order: RetailerOrder) => {
+    try {
+      await confirmClientSignoff(order.id);
+      Alert.alert('Order Marked Delivered', `The order for "${order.client_name}" was marked delivered. Payment remains held until client confirmation.`);
+    } catch (error: any) {
+      Alert.alert('Update Failed', error?.message || 'Unable to update this order.');
+    }
   };
 
   return (
@@ -65,7 +75,7 @@ export default function OrdersScreen() {
           </View>
         ) : (
           orders.map((order) => {
-            const isSignedOff = order.status === 'Signed_Off';
+            const isSignedOff = order.status === 'Delivered' || order.status === 'Signed_Off';
             const isCoordinated = order.status === 'Scout_Coordinated' || isSignedOff;
 
             return (
@@ -88,7 +98,7 @@ export default function OrdersScreen() {
                       color={isSignedOff ? Colors.badgeSuccess : Colors.deepCocoa}
                     />
                     <Text style={[styles.escrowBadgeText, isSignedOff && { color: Colors.badgeSuccess }]}>
-                      {isSignedOff ? 'Payment Released' : 'Escrow Secured'}
+                      {isSignedOff ? 'Awaiting Client Confirmation' : 'Order Pending'}
                     </Text>
                   </View>
                 </View>
@@ -154,12 +164,12 @@ export default function OrdersScreen() {
                         activeOpacity={0.8}
                       >
                         <Ionicons name="shield-checkmark" size={14} color={Colors.white} />
-                        <Text style={styles.signoffBtnText}>Client Sign-off & Release Pay</Text>
+                        <Text style={styles.signoffBtnText}>Mark Order Delivered</Text>
                       </TouchableOpacity>
                     ) : (
                       <View style={styles.completedBadge}>
                         <Ionicons name="checkmark-done-circle" size={16} color={Colors.badgeSuccess} />
-                        <Text style={styles.completedText}>Sign-off Complete</Text>
+                        <Text style={styles.completedText}>Delivery Recorded</Text>
                       </View>
                     )}
                   </View>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -19,10 +19,14 @@ const TABS = ['Pending', 'Approved', 'Rejected'];
 
 export default function AdminApprovalsScreen() {
   const [activeTab, setActiveTab] = useState(0);
-  const { usersList, approveRoleRequest, rejectRoleRequest } = useAuthStore();
+  const { usersList, approveRoleRequest, rejectRoleRequest, fetchUsers } = useAuthStore();
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
   const pendingUsers = usersList.filter(
-    (u) => u.role_approval_status === 'pending' || u.requested_role
+    (u) => u.role_approval_status === 'pending'
   );
 
   const approvedUsers = usersList.filter(
@@ -35,16 +39,24 @@ export default function AdminApprovalsScreen() {
 
   const displayList = activeTab === 0 ? pendingUsers : activeTab === 1 ? approvedUsers : rejectedUsers;
 
-  const handleApprove = (userId: string, name: string, requestedRole: UserRole) => {
-    approveRoleRequest(userId, requestedRole);
+  const handleApprove = async (userId: string, name: string, requestedRole: UserRole) => {
+    const result = await approveRoleRequest(userId, requestedRole);
+    if (!result.success) {
+      Alert.alert('Approval Failed', result.error || 'Unable to approve this request.');
+      return;
+    }
     Alert.alert(
       'Role Approved!',
       `${name} has been promoted to ${requestedRole.toUpperCase()}. They now have full access to the ${requestedRole} dashboard.`
     );
   };
 
-  const handleReject = (userId: string, name: string) => {
-    rejectRoleRequest(userId);
+  const handleReject = async (userId: string, name: string) => {
+    const result = await rejectRoleRequest(userId);
+    if (!result.success) {
+      Alert.alert('Rejection Failed', result.error || 'Unable to reject this request.');
+      return;
+    }
     Alert.alert('Request Rejected', `${name}'s request for dashboard role upgrade was rejected.`);
   };
 

@@ -2,9 +2,11 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Shadows, Typography } from '../../src/constants/theme';
+import { RoleGuard } from '../../src/components/RoleGuard';
 
 export default function MoverLayout() {
   return (
+    <RoleGuard allowedRole="mover">
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -58,5 +60,6 @@ export default function MoverLayout() {
         }}
       />
     </Tabs>
+    </RoleGuard>
   );
 }

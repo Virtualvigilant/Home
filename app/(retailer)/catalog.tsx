@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -16,7 +16,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { FilterTabs, ProductCard, SectionHeader } from '../../src/components';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
 import { useRetailerStore } from '../../src/store/retailerStore';
-import { formatPickedAsset, getValidPropertyImages, DEFAULT_PRODUCT_IMAGE } from '../../src/lib/imageUtils';
+import { getValidPropertyImages, DEFAULT_PRODUCT_IMAGE, uploadPickedImage } from '../../src/lib/imageUtils';
+import { useAuthStore } from '../../src/store/authStore';
 
 const TABS = ['Showroom Inventory', 'Categories'];
 
@@ -24,7 +25,14 @@ export default function CatalogScreen() {
   const [activeTab, setActiveTab] = useState(0);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
-  const { products, addProduct } = useRetailerStore();
+  const { products, addProduct, fetchProducts } = useRetailerStore();
+  const user = useAuthStore((state) => state.user);
+
+  useEffect(() => {
+    fetchProducts().catch((error) =>
+      Alert.alert('Catalog Error', error?.message || 'Unable to load your products.')
+    );
+  }, [fetchProducts]);
 
   // Form State
   const [name, setName] = useState('');
@@ -49,8 +57,13 @@ export default function CatalogScreen() {
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      const formattedUri = formatPickedAsset(result.assets[0]);
-      setImagesList((prev) => Array.from(new Set([...prev, formattedUri])));
+      if (!user) return;
+      try {
+        const uploadedUrl = await uploadPickedImage(result.assets[0], 'product-images', user.id);
+        setImagesList((prev) => Array.from(new Set([...prev, uploadedUrl])));
+      } catch (error: any) {
+        Alert.alert('Image Upload Failed', error?.message || 'Unable to upload this image.');
+      }
     }
   };
 
@@ -61,7 +74,7 @@ export default function CatalogScreen() {
     }
   };
 
-  const handleSaveProduct = () => {
+  const handleSaveProduct = async () => {
     if (!name.trim() || !price.trim()) {
       Alert.alert('Missing Info', 'Please enter product name and price.');
       return;
@@ -70,25 +83,29 @@ export default function CatalogScreen() {
     const priceNum = parseInt(price.replace(/[^0-9]/g, ''), 10) || 25000;
     const finalImages = imagesList.length > 0 ? imagesList : [DEFAULT_PRODUCT_IMAGE];
 
-    addProduct({
-      retailer_id: 'u5',
-      name: name.trim(),
-      description: description.trim() || 'High-quality furniture handcrafted locally.',
-      price: priceNum,
-      currency: 'KES',
-      images: finalImages,
-      category,
-      stock_count: parseInt(stockCount, 10) || 10,
-      is_featured: true,
-      rating: 5.0,
-    });
+    try {
+      const product = await addProduct({
+        retailer_id: '',
+        name: name.trim(),
+        description: description.trim() || 'High-quality furniture handcrafted locally.',
+        price: priceNum,
+        currency: 'KES',
+        images: finalImages,
+        category,
+        stock_count: parseInt(stockCount, 10) || 10,
+        is_featured: false,
+        rating: 0,
+      });
 
-    setIsAddModalOpen(false);
-    setName('');
-    setPrice('');
-    setDescription('');
-    setImagesList([]);
-    Alert.alert('Product Onboarded!', `"${name.trim()}" is now live in your catalog.`);
+      setIsAddModalOpen(false);
+      setName('');
+      setPrice('');
+      setDescription('');
+      setImagesList([]);
+      Alert.alert('Product Published', `"${product.name}" is now live in your catalog.`);
+    } catch (error: any) {
+      Alert.alert('Product Save Failed', error?.message || 'Unable to publish this product.');
+    }
   };
 
   return (

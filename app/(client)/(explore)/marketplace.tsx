@@ -13,9 +13,9 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { SearchBar, FilterTabs, ProductCard, SectionHeader } from '../../../src/components';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../../src/constants/theme';
-import { mockProducts } from '../../../src/data/mockData';
 import { Product } from '../../../src/lib/database.types';
 import { supabase } from '../../../src/lib/supabase';
+import { useAuthStore } from '../../../src/store/authStore';
 import { useRouter } from 'expo-router';
 
 const TABS = ['Homes', 'Marketplace', 'Services'];
@@ -27,6 +27,7 @@ export default function MarketplaceScreen() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isOrdered, setIsOrdered] = useState(false);
   const router = useRouter();
+  const user = useAuthStore((state) => state.user);
 
   const handleTabChange = (index: number) => {
     setActiveTab(index);
@@ -37,25 +38,47 @@ export default function MarketplaceScreen() {
     }
   };
 
-  const toggleWishlist = (id: string) => {
+  const toggleWishlist = async (id: string) => {
+    if (!user) return;
+    const exists = wishlisted.has(id);
+    const query = exists
+      ? supabase.from('wishlists').delete().eq('user_id', user.id).eq('product_id', id)
+      : supabase.from('wishlists').insert({ user_id: user.id, product_id: id });
+    const { error } = await query;
+    if (error) {
+      Alert.alert('Wishlist Error', error.message);
+      return;
+    }
     setWishlisted((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (exists) next.delete(id); else next.add(id);
       return next;
     });
   };
 
-  const handleOrderProduct = () => {
+  const handleOrderProduct = async () => {
+    if (!selectedProduct || !user || isOrdered) return;
     setIsOrdered(true);
-    setTimeout(() => {
+    const { error } = await supabase.from('bookings').insert({
+      client_id: user.id,
+      property_id: null,
+      product_id: selectedProduct.id,
+      service_id: null,
+      move_in_date: new Date().toISOString().slice(0, 10),
+      status: 'Pending',
+      total_amount: selectedProduct.price,
+      currency: selectedProduct.currency || 'KES',
+      notes: 'Marketplace order awaiting retailer confirmation',
+    });
+    if (error) {
       setIsOrdered(false);
-      const prodName = selectedProduct?.name;
-      setSelectedProduct(null);
-      Alert.alert(
-        'Order Placed!',
-        `Your order for "${prodName}" has been received. The retailer will coordinate delivery to your home.`
-      );
-    }, 800);
+      Alert.alert('Order Failed', error.message || 'Unable to place this order.');
+      return;
+    }
+    const prodName = selectedProduct.name;
+    setIsOrdered(false);
+    setSelectedProduct(null);
+    Alert.alert('Order Placed', `Your order for "${prodName}" was sent to the retailer for confirmation.`);
   };
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -69,6 +92,12 @@ export default function MarketplaceScreen() {
     };
     loadProducts();
   }, []);
+
+  React.useEffect(() => {
+    if (!user) return;
+    supabase.from('wishlists').select('product_id').eq('user_id', user.id).not('product_id', 'is', null)
+      .then(({ data }) => setWishlisted(new Set((data || []).map((item) => item.product_id).filter(Boolean))));
+  }, [user]);
 
   const filteredProducts = searchQuery
     ? products.filter(
@@ -105,7 +134,7 @@ export default function MarketplaceScreen() {
           <>
             {featured.length > 0 && (
               <>
-                <SectionHeader title="Featured Items" onSeeAll={() => {}} />
+                <SectionHeader title="Featured Items" />
                 <View style={styles.grid}>
                   {featured.map((product) => (
                     <ProductCard
@@ -120,7 +149,7 @@ export default function MarketplaceScreen() {
               </>
             )}
 
-            <SectionHeader title="All Furniture" onSeeAll={() => {}} />
+            <SectionHeader title="All Furniture" />
             <View style={styles.grid}>
               {filteredProducts.map((product) => (
                 <ProductCard
@@ -179,6 +208,7 @@ export default function MarketplaceScreen() {
                 <TouchableOpacity
                   style={styles.orderBtn}
                   onPress={handleOrderProduct}
+                  disabled={isOrdered || selectedProduct.stock_count < 1}
                   activeOpacity={0.8}
                 >
                   <Ionicons name="cart-outline" size={20} color={Colors.white} style={{ marginRight: 8 }} />

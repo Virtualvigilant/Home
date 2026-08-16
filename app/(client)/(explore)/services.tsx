@@ -8,16 +8,18 @@ import {
   TouchableOpacity,
   Modal,
   Alert,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { SearchBar, FilterTabs, SectionHeader, ServiceCategory } from '../../../src/components';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../../src/constants/theme';
-import { mockServices, serviceCategories } from '../../../src/data/mockData';
+import { serviceCategories } from '../../../src/data/mockData';
 import { Service } from '../../../src/lib/database.types';
 import { supabase } from '../../../src/lib/supabase';
 import { useRouter } from 'expo-router';
+import { useAuthStore } from '../../../src/store/authStore';
 
 const TABS = ['Homes', 'Marketplace', 'Services'];
 
@@ -32,7 +34,9 @@ export default function ServicesScreen() {
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [isBooking, setIsBooking] = useState(false);
   const [services, setServices] = useState<Service[]>([]);
+  const [requestDetails, setRequestDetails] = useState('');
   const router = useRouter();
+  const user = useAuthStore((state) => state.user);
 
   React.useEffect(() => {
     const loadServices = async () => {
@@ -61,17 +65,34 @@ export default function ServicesScreen() {
     }
   };
 
-  const handleBookService = () => {
+  const handleBookService = async () => {
+    if (!selectedService || !user || isBooking) return;
+    if (!requestDetails.trim()) {
+      Alert.alert('Details Required', 'Add the service address, preferred date/time, and any important instructions.');
+      return;
+    }
     setIsBooking(true);
-    setTimeout(() => {
+    const { error } = await supabase.from('bookings').insert({
+      client_id: user.id,
+      property_id: null,
+      product_id: null,
+      service_id: selectedService.id,
+      move_in_date: new Date().toISOString().slice(0, 10),
+      status: 'Pending',
+      total_amount: selectedService.price,
+      currency: selectedService.currency || 'KES',
+      notes: requestDetails.trim(),
+    });
+    if (error) {
       setIsBooking(false);
-      const sName = selectedService?.name;
-      setSelectedService(null);
-      Alert.alert(
-        'Service Requested!',
-        `Your request for "${sName}" has been placed. The service provider will reach out to confirm your schedule.`
-      );
-    }, 800);
+      Alert.alert('Request Failed', error.message || 'Unable to request this service.');
+      return;
+    }
+    const sName = selectedService.name;
+    setIsBooking(false);
+    setSelectedService(null);
+    setRequestDetails('');
+    Alert.alert('Service Requested', `Your request for "${sName}" was sent to the provider for confirmation.`);
   };
 
   // Filter by category name
@@ -267,6 +288,17 @@ export default function ServicesScreen() {
                 <Text style={styles.descriptionHeading}>Service Overview</Text>
                 <Text style={styles.descriptionText}>{selectedService.description}</Text>
 
+                <Text style={styles.requestLabel}>Address, preferred date/time, and instructions</Text>
+                <TextInput
+                  style={styles.requestInput}
+                  placeholder="e.g. Pickup in Kilimani, deliver to Westlands on 24 Aug at 10:00 AM"
+                  placeholderTextColor={Colors.textTertiary}
+                  value={requestDetails}
+                  onChangeText={setRequestDetails}
+                  multiline
+                  maxLength={1000}
+                />
+
                 <View style={styles.ratingDetailRow}>
                   <Ionicons name="star" size={16} color={Colors.deepCocoa} />
                   <Text style={styles.ratingDetailText}>
@@ -277,6 +309,7 @@ export default function ServicesScreen() {
                 <TouchableOpacity
                   style={styles.bookBtn}
                   onPress={handleBookService}
+                  disabled={isBooking || !selectedService.availability}
                   activeOpacity={0.8}
                 >
                   <Ionicons name="calendar-outline" size={20} color={Colors.white} style={{ marginRight: 8 }} />
@@ -523,6 +556,23 @@ const styles = StyleSheet.create({
     fontWeight: Typography.bold,
     color: Colors.deepCocoa,
     marginBottom: Spacing.xs,
+  },
+  requestLabel: {
+    fontSize: Typography.caption,
+    fontWeight: Typography.semiBold,
+    color: Colors.deepCocoa,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.xs,
+  },
+  requestInput: {
+    minHeight: 78,
+    borderWidth: 1,
+    borderColor: Colors.divider,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.sm,
+    color: Colors.deepCocoa,
+    backgroundColor: Colors.softCream,
+    textAlignVertical: 'top',
   },
   descriptionText: {
     fontSize: Typography.bodySmall,

@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { formatPickedAsset, getValidPropertyImages, DEFAULT_PROPERTY_IMAGE } from '../../src/lib/imageUtils';
+import { getValidPropertyImages, DEFAULT_PROPERTY_IMAGE, uploadPickedImage } from '../../src/lib/imageUtils';
 import { FilterTabs, PropertyListingCard } from '../../src/components';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
 import { usePropertyStore } from '../../src/store/propertyStore';
@@ -145,9 +145,15 @@ export default function PortfolioScreen() {
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      const formattedUris = result.assets.map((asset) => formatPickedAsset(asset));
-      const combined = Array.from(new Set([...imagesList, ...formattedUris]));
-      setImagesList(combined);
+      if (!user) return;
+      try {
+        const uploadedUrls = await Promise.all(
+          result.assets.map((asset) => uploadPickedImage(asset, 'property-images', user.id))
+        );
+        setImagesList(Array.from(new Set([...imagesList, ...uploadedUrls])));
+      } catch (error: any) {
+        Alert.alert('Image Upload Failed', error?.message || 'Unable to upload the selected photos.');
+      }
     }
   };
 
@@ -166,9 +172,12 @@ export default function PortfolioScreen() {
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      const formattedUri = formatPickedAsset(result.assets[0]);
-      if (!imagesList.includes(formattedUri)) {
-        setImagesList([...imagesList, formattedUri]);
+      if (!user) return;
+      try {
+        const uploadedUrl = await uploadPickedImage(result.assets[0], 'property-images', user.id);
+        if (!imagesList.includes(uploadedUrl)) setImagesList([...imagesList, uploadedUrl]);
+      } catch (error: any) {
+        Alert.alert('Image Upload Failed', error?.message || 'Unable to upload this photo.');
       }
     }
   };
@@ -253,7 +262,7 @@ export default function PortfolioScreen() {
         );
       }
     } catch (err: any) {
-      // Error handled by store Alert
+      Alert.alert('Listing Save Failed', err?.message || 'Unable to save this listing.');
     }
   };
 
@@ -268,9 +277,13 @@ export default function PortfolioScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            await deleteProperty(editingPropertyId);
-            setIsAddModalOpen(false);
-            Alert.alert('Listing Deleted', 'The property listing has been permanently removed.');
+            try {
+              await deleteProperty(editingPropertyId);
+              setIsAddModalOpen(false);
+              Alert.alert('Listing Deleted', 'The property listing has been permanently removed.');
+            } catch (error: any) {
+              Alert.alert('Delete Failed', error?.message || 'Unable to delete this listing.');
+            }
           },
         },
       ]

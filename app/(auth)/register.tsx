@@ -13,7 +13,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
 import { useAuthStore } from '../../src/store/authStore';
+import { UserRole } from '../../src/lib/database.types';
 import { useRouter } from 'expo-router';
+
+const accountRoles: Array<{ role: UserRole; label: string; description: string; icon: any }> = [
+  { role: 'client', label: 'Client', description: 'Find homes, products, and services', icon: 'person-outline' },
+  { role: 'landlord', label: 'Landlord', description: 'List and manage properties', icon: 'business-outline' },
+  { role: 'hunter', label: 'House Hunter', description: 'Source and verify property leads', icon: 'search-outline' },
+  { role: 'retailer', label: 'Retailer', description: 'Sell home products', icon: 'storefront-outline' },
+  { role: 'mover', label: 'Mover', description: 'Accept and fulfil moving jobs', icon: 'car-outline' },
+];
 
 export default function RegisterScreen() {
   const [name, setName] = useState('');
@@ -23,6 +32,7 @@ export default function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<UserRole>('client');
 
   const router = useRouter();
   const { signUp, loading, error, clearError } = useAuthStore();
@@ -30,6 +40,11 @@ export default function RegisterScreen() {
   const handleRegister = async () => {
     if (!name.trim() || !email.trim() || !password.trim()) {
       Alert.alert('Missing Fields', 'Please fill in your full name, email, and password.');
+      return;
+    }
+
+    if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
+      Alert.alert('Invalid Email', 'Enter a valid email address.');
       return;
     }
 
@@ -53,10 +68,19 @@ export default function RegisterScreen() {
       email: email.trim(),
       phone: phone.trim(),
       password,
+      requestedRole: selectedRole,
     });
 
     if (res.success) {
-      router.replace('/(client)/(explore)/homes');
+      if (res.requiresEmailConfirmation) {
+        Alert.alert(
+          'Check Your Email',
+          'Your account was created. Confirm your email, then sign in. Your requested dashboard will remain pending until an administrator approves it.',
+          [{ text: 'Continue', onPress: () => router.replace('/(auth)/login') }]
+        );
+      } else {
+        router.replace('/(client)/(explore)/homes');
+      }
     } else {
       const displayErr = typeof res.error === 'string' ? res.error : ((res.error as any)?.message || 'Failed to create account.');
       Alert.alert('Registration Error', displayErr);
@@ -138,6 +162,39 @@ export default function RegisterScreen() {
               value={phone}
               onChangeText={setPhone}
             />
+          </View>
+
+          <Text style={styles.inputLabel}>Account Type</Text>
+          <Text style={styles.roleHelp}>
+            Specialist accounts use the client dashboard until an administrator approves access.
+          </Text>
+          <View style={styles.roleGrid}>
+            {accountRoles.map((item) => {
+              const selected = selectedRole === item.role;
+              return (
+                <TouchableOpacity
+                  key={item.role}
+                  style={[styles.roleCard, selected && styles.roleCardSelected]}
+                  onPress={() => setSelectedRole(item.role)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name={item.icon}
+                    size={20}
+                    color={selected ? Colors.matteClay : Colors.textSecondary}
+                  />
+                  <View style={styles.roleCopy}>
+                    <Text style={[styles.roleLabel, selected && styles.roleLabelSelected]}>{item.label}</Text>
+                    <Text style={styles.roleDescription}>{item.description}</Text>
+                  </View>
+                  <Ionicons
+                    name={selected ? 'radio-button-on' : 'radio-button-off'}
+                    size={19}
+                    color={selected ? Colors.matteClay : Colors.textTertiary}
+                  />
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           {/* Password */}
@@ -302,6 +359,45 @@ const styles = StyleSheet.create({
   },
   eyeButton: {
     padding: 4,
+  },
+  roleHelp: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
+    lineHeight: 18,
+  },
+  roleGrid: {
+    gap: Spacing.xs,
+  },
+  roleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.divider,
+    backgroundColor: Colors.softCream,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  roleCardSelected: {
+    borderColor: Colors.matteClay,
+    backgroundColor: '#FAF5EF',
+  },
+  roleCopy: {
+    flex: 1,
+  },
+  roleLabel: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.semiBold,
+    color: Colors.deepCocoa,
+  },
+  roleLabelSelected: {
+    color: Colors.matteClay,
+  },
+  roleDescription: {
+    fontSize: Typography.tiny,
+    color: Colors.textSecondary,
+    marginTop: 1,
   },
   termsRow: {
     flexDirection: 'row',

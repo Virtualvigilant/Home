@@ -17,7 +17,7 @@ import { FilterTabs, LeadCard } from '../../src/components';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
 import { usePropertyStore } from '../../src/store/propertyStore';
 import { useAuthStore } from '../../src/store/authStore';
-import { formatPickedAsset, getValidPropertyImages, DEFAULT_PROPERTY_IMAGE } from '../../src/lib/imageUtils';
+import { getValidPropertyImages, DEFAULT_PROPERTY_IMAGE, uploadPickedImage } from '../../src/lib/imageUtils';
 import { useRouter } from 'expo-router';
 
 const TABS = ['All Sourced Leads', 'Move-In Ready', 'Verified'];
@@ -43,7 +43,7 @@ export default function LeadsScreen() {
   // KYC Form State
   const [docType, setDocType] = useState<'national_id' | 'passport' | 'alien_id'>('national_id');
   const [idNumber, setIdNumber] = useState('');
-  const [idPhoto, setIdPhoto] = useState<string | null>(null);
+  const [idPhoto, setIdPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
 
   // Sourcing Form State
   const [title, setTitle] = useState('');
@@ -65,17 +65,22 @@ export default function LeadsScreen() {
     router.push(`/property/${propertyId}`);
   };
 
-  const handleVerify = (leadId: string, leadTitle: string) => {
-    verifyLead(leadId);
-    Alert.alert('Lead Verified!', `"${leadTitle}" has been physically verified. You will earn a bounty when booked.`);
+  const handleVerify = async (leadId: string, leadTitle: string) => {
+    try {
+      await verifyLead(leadId);
+      Alert.alert('Lead Verified', `"${leadTitle}" has been physically verified.`);
+    } catch (error: any) {
+      Alert.alert('Verification Failed', error?.message || 'Unable to verify this lead.');
+    }
   };
 
-  const handleUnlockMoveIn = (leadId: string, leadTitle: string) => {
-    unlockPropertyAccess(leadId);
-    Alert.alert(
-      'Property Unlocked!',
-      `Keys released for "${leadTitle}". Finder's bounty is now available in your Payouts Wallet!`
-    );
+  const handleUnlockMoveIn = async (leadId: string, leadTitle: string) => {
+    try {
+      await unlockPropertyAccess(leadId);
+      Alert.alert('Move-in Recorded', `Move-in was recorded for "${leadTitle}".`);
+    } catch (error: any) {
+      Alert.alert('Update Failed', error?.message || 'Unable to update this lead.');
+    }
   };
 
   const handlePickIdPhoto = async () => {
@@ -89,21 +94,26 @@ export default function LeadsScreen() {
       quality: 0.8,
     });
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      setIdPhoto(result.assets[0].uri);
+      setIdPhoto(result.assets[0]);
     }
   };
 
-  const handleSubmitKyc = () => {
-    if (!idNumber.trim()) {
-      Alert.alert('Missing Field', 'Please enter your Government ID / Passport Number.');
+  const handleSubmitKyc = async () => {
+    if (!idNumber.trim() || !idPhoto || !user) {
+      Alert.alert('Missing Information', 'Enter your ID number and select the matching document photo.');
       return;
     }
-    completeKycVerification(idNumber.trim(), docType);
-    setIsKycModalOpen(false);
-    Alert.alert(
-      'KYC Verified!',
-      'Your identity check was completed. You are now a Verified On-Ground Scout!'
-    );
+    try {
+      const documentPath = await uploadPickedImage(idPhoto, 'kyc-documents', user.id);
+      const result = await completeKycVerification(idNumber.trim(), docType, documentPath);
+      if (!result.success) throw new Error(result.error);
+      setIsKycModalOpen(false);
+      setIdNumber('');
+      setIdPhoto(null);
+      Alert.alert('Verification Submitted', 'Your identity document was submitted for administrator review.');
+    } catch (error: any) {
+      Alert.alert('Submission Failed', error?.message || 'Unable to submit your verification document.');
+    }
   };
 
   const handlePickSourceImage = async () => {
@@ -116,11 +126,17 @@ export default function LeadsScreen() {
       mediaTypes: ['images'],
       allowsMultipleSelection: true,
       quality: 0.7,
-      base64: true,
     });
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      const formattedUris = result.assets.map((asset) => formatPickedAsset(asset));
-      setImagesList((prev) => Array.from(new Set([...prev, ...formattedUris])));
+      if (!user) return;
+      try {
+        const uploadedUrls = await Promise.all(
+          result.assets.map((asset) => uploadPickedImage(asset, 'property-images', user.id))
+        );
+        setImagesList((prev) => Array.from(new Set([...prev, ...uploadedUrls])));
+      } catch (error: any) {
+        Alert.alert('Image Upload Failed', error?.message || 'Unable to upload these photos.');
+      }
     }
   };
 
@@ -136,11 +152,16 @@ export default function LeadsScreen() {
       Alert.alert('Missing Fields', 'Please enter title, location, and rent price.');
       return;
     }
-    const hunterId = user?.id || 'u2';
+    if (!user) {
+      Alert.alert('Authentication Required', 'Sign in again to add a lead.');
+      return;
+    }
+    const hunterId = user.id;
     const rentPrice = parseInt(price.replace(/[^0-9]/g, ''), 10) || 35000;
     const bountyAmount = parseInt(bounty.replace(/[^0-9]/g, ''), 10) || 4000;
 
-    await addHunterLead({
+    try {
+      await addHunterLead({
       title: title.trim(),
       location: location.trim(),
       price: rentPrice,
@@ -153,7 +174,7 @@ export default function LeadsScreen() {
       longitude: geotagCoords.lng,
       hunterId,
       notes: scoutNotes.trim() || 'Geotagged off-market lead.',
-    });
+      });
 
     setIsSourceModalOpen(false);
     // Reset form
@@ -164,9 +185,12 @@ export default function LeadsScreen() {
     setScoutNotes('');
     setImagesList([]);
     Alert.alert(
-      'Off-Market Lead Added!',
-      `"${title.trim()}" is now registered. Earn KES ${bountyAmount.toLocaleString()} when booked!`
+      'Off-Market Lead Added',
+      `"${title.trim()}" is now registered for review.`
     );
+    } catch (error: any) {
+      Alert.alert('Lead Save Failed', error?.message || 'Unable to save this lead.');
+    }
   };
 
   const filteredLeads = activeTab === 0
@@ -355,7 +379,7 @@ export default function LeadsScreen() {
             <Text style={styles.inputLabel}>Upload ID Document Photo</Text>
             <TouchableOpacity style={styles.uploadIdBox} onPress={handlePickIdPhoto}>
               {idPhoto ? (
-                <Image source={{ uri: idPhoto }} style={styles.idPhotoPreview} contentFit="cover" />
+                <Image source={{ uri: idPhoto.uri }} style={styles.idPhotoPreview} contentFit="cover" />
               ) : (
                 <View style={{ alignItems: 'center' }}>
                   <Ionicons name="cloud-upload-outline" size={32} color={Colors.matteClay} />

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -30,7 +30,11 @@ export default function AdminUsersScreen() {
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
 
-  const { usersList, changeUserRole, toggleUserVerification } = useAuthStore();
+  const { usersList, changeUserRole, toggleUserVerification, fetchUsers } = useAuthStore();
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
   const filteredUsers = searchQuery
     ? usersList.filter(
@@ -41,9 +45,13 @@ export default function AdminUsersScreen() {
       )
     : usersList;
 
-  const handleRoleChange = (targetRole: UserRole) => {
+  const handleRoleChange = async (targetRole: UserRole) => {
     if (!selectedUser) return;
-    changeUserRole(selectedUser.id, targetRole);
+    const result = await changeUserRole(selectedUser.id, targetRole);
+    if (!result.success) {
+      Alert.alert('Role Update Failed', result.error || 'Unable to update this role.');
+      return;
+    }
     setIsRoleModalOpen(false);
     Alert.alert(
       'Role Updated!',
@@ -52,8 +60,12 @@ export default function AdminUsersScreen() {
     setSelectedUser(null);
   };
 
-  const handleToggleVerification = (userId: string, name: string, currentVerified: boolean) => {
-    toggleUserVerification(userId);
+  const handleToggleVerification = async (userId: string, name: string, currentVerified: boolean) => {
+    const result = await toggleUserVerification(userId);
+    if (!result.success) {
+      Alert.alert('Verification Update Failed', result.error || 'Unable to update verification.');
+      return;
+    }
     Alert.alert(
       currentVerified ? 'Verification Revoked' : 'User Verified',
       `${name} is now ${currentVerified ? 'unverified' : 'verified'} on the platform.`

@@ -41,26 +41,23 @@ export default function PayoutsScreen() {
     setIsWithdrawModalOpen(true);
   };
 
-  const handleConfirmPayout = () => {
+  const handleConfirmPayout = async () => {
     if (!mpesaNumber.trim()) {
       Alert.alert('Missing Number', 'Please enter your M-PESA phone number.');
       return;
     }
 
     setIsProcessing(true);
-    setTimeout(() => {
+    try {
       if (selectedLeadForPayout) {
-        claimBountyPayout(selectedLeadForPayout.id, mpesaNumber);
+        await claimBountyPayout(selectedLeadForPayout.id, mpesaNumber);
       }
       setIsProcessing(false);
       setIsWithdrawModalOpen(false);
-
-      const txRef = `MPESA_${Math.floor(100000 + Math.random() * 900000)}`;
-      Alert.alert(
-        'Bounty Released Instantly!',
-        `Ref: ${txRef}\nKES ${(selectedLeadForPayout?.bounty_amount || availableBalance).toLocaleString()} has been sent to M-PESA (${mpesaNumber}).`
-      );
-    }, 1200);
+    } catch (error: any) {
+      setIsProcessing(false);
+      Alert.alert('Payout Unavailable', error?.message || 'Unable to process this payout.');
+    }
   };
 
   return (

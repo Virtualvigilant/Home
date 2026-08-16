@@ -2,9 +2,11 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Shadows, Typography } from '../../src/constants/theme';
+import { RoleGuard } from '../../src/components/RoleGuard';
 
 export default function AdminLayout() {
   return (
+    <RoleGuard allowedRole="admin">
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -52,5 +54,6 @@ export default function AdminLayout() {
         }}
       />
     </Tabs>
+    </RoleGuard>
   );
 }

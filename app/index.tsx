@@ -1,9 +1,19 @@
 import React from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Redirect } from 'expo-router';
 import { useAuthStore } from '../src/store/authStore';
+import { Colors } from '../src/constants/theme';
 
 export default function Index() {
-  const { isAuthenticated, role } = useAuthStore();
+  const { initialized, isAuthenticated, role } = useAuthStore();
+
+  if (!initialized) {
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator size="large" color={Colors.matteClay} />
+      </View>
+    );
+  }
 
   if (!isAuthenticated) {
     return <Redirect href="/(auth)/login" />;
@@ -26,3 +36,7 @@ export default function Index() {
       return <Redirect href="/(client)/(explore)/homes" />;
   }
 }
+
+const styles = StyleSheet.create({
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.softCream },
+});

@@ -41,16 +41,11 @@ export default function PaymentsScreen() {
       Alert.alert('Missing Number', 'Please enter your M-PESA phone number.');
       return;
     }
-    setIsProcessing(true);
-    setTimeout(() => {
-      setIsProcessing(false);
-      setIsPayoutModalOpen(false);
-      const txRef = `RETAIL_MPESA_${Math.floor(100000 + Math.random() * 900000)}`;
-      Alert.alert(
-        'Payment Transferred!',
-        `Ref: ${txRef}\nKES ${availableBalance.toLocaleString()} transferred to M-PESA (${mpesaNumber}).`
-      );
-    }, 1200);
+    setIsProcessing(false);
+    Alert.alert(
+      'Payout Unavailable',
+      'M-PESA payouts require a configured server-side payment provider. No transfer was attempted.'
+    );
   };
 
   return (

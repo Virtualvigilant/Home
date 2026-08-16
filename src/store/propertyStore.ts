@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { Property, HunterLead, Booking } from '../lib/database.types';
 import { supabase } from '../lib/supabase';
-import { Alert } from 'react-native';
 import { getValidPropertyImages } from '../lib/imageUtils';
 import { mockProperties, mockHunterLeads } from '../data/mockData';
 
@@ -14,9 +13,10 @@ interface PropertyState {
   
   // Data fetching
   fetchProperties: () => Promise<void>;
+  fetchWishlist: () => Promise<void>;
   
   // Wishlist actions
-  toggleWishlist: (propertyId: string) => void;
+  toggleWishlist: (propertyId: string) => Promise<void>;
   isWishlisted: (propertyId: string) => boolean;
 
   // Property management actions
@@ -27,7 +27,7 @@ interface PropertyState {
   updatePropertyStatus: (propertyId: string, status: Property['status']) => Promise<void>;
 
   // Hunter actions
-  verifyLead: (leadId: string) => void;
+  verifyLead: (leadId: string) => Promise<void>;
   addHunterLead: (data: {
     title: string;
     location: string;
@@ -42,12 +42,12 @@ interface PropertyState {
     hunterId: string;
     notes?: string;
   }) => Promise<HunterLead>;
-  unlockPropertyAccess: (leadId: string) => void;
+  unlockPropertyAccess: (leadId: string) => Promise<void>;
   claimBountyPayout: (leadId: string, mpesaPhone: string) => Promise<void>;
 
   // Booking & Rental actions
-  bookTour: (propertyId: string, date: string, time: string) => void;
-  rentProperty: (propertyId: string, totalAmount: number, notes?: string) => Booking;
+  bookTour: (propertyId: string, date: string, notes?: string) => Promise<Booking>;
+  rentProperty: (propertyId: string, totalAmount: number, notes?: string) => Promise<Booking>;
 }
 
 export const usePropertyStore = create<PropertyState>((set, get) => ({
@@ -83,20 +83,42 @@ export const usePropertyStore = create<PropertyState>((set, get) => ({
           }))
         : get().hunterLeads;
 
+      if (error) throw error;
       set({ properties: sanitizedProps, hunterLeads: sanitizedLeads, loading: false });
     } catch (err) {
       set({ loading: false });
     }
   },
 
-  toggleWishlist: (propertyId: string) => {
-    set((state) => {
-      const exists = state.wishlistIds.includes(propertyId);
-      const updatedWishlist = exists
+  fetchWishlist: async () => {
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) {
+      set({ wishlistIds: [] });
+      return;
+    }
+    const { data, error } = await supabase
+      .from('wishlists')
+      .select('property_id')
+      .eq('user_id', authData.user.id)
+      .not('property_id', 'is', null);
+    if (error) throw error;
+    set({ wishlistIds: (data || []).map((item) => item.property_id).filter(Boolean) as string[] });
+  },
+
+  toggleWishlist: async (propertyId: string) => {
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) throw new Error('Sign in to save properties to your wishlist.');
+    const exists = get().wishlistIds.includes(propertyId);
+    const query = exists
+      ? supabase.from('wishlists').delete().eq('user_id', authData.user.id).eq('property_id', propertyId)
+      : supabase.from('wishlists').insert({ user_id: authData.user.id, property_id: propertyId });
+    const { error } = await query;
+    if (error) throw error;
+    set((state) => ({
+      wishlistIds: exists
         ? state.wishlistIds.filter((id) => id !== propertyId)
-        : [...state.wishlistIds, propertyId];
-      return { wishlistIds: updatedWishlist };
-    });
+        : [...state.wishlistIds, propertyId],
+    }));
   },
 
   isWishlisted: (propertyId: string) => {
@@ -119,7 +141,6 @@ export const usePropertyStore = create<PropertyState>((set, get) => ({
     }
 
     if (!landlordId || !landlordId.includes('-')) {
-      Alert.alert('Sign In Required', 'Please sign in to your landlord account to publish properties.');
       throw new Error('Valid landlord UUID required to save property.');
     }
 
@@ -150,8 +171,6 @@ export const usePropertyStore = create<PropertyState>((set, get) => ({
         .single();
 
       if (error) {
-        console.error('Supabase property insert error:', error.message, error.details);
-        Alert.alert('Database Error', error.message || 'Could not save property to database.');
         throw error;
       }
 
@@ -167,14 +186,7 @@ export const usePropertyStore = create<PropertyState>((set, get) => ({
       throw e;
     }
 
-    const fallbackTemp: Property = {
-      ...newPropData,
-      landlord_id: landlordId,
-      id: `p_${Date.now()}`,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    return fallbackTemp;
+    throw new Error('The property was not saved.');
   },
 
   updateProperty: async (propertyId, updates) => {
@@ -184,67 +196,49 @@ export const usePropertyStore = create<PropertyState>((set, get) => ({
       updated_at: updatedAt,
     };
 
+    const { data, error } = await supabase
+      .from('properties')
+      .update(payload)
+      .eq('id', propertyId)
+      .select()
+      .single();
+    if (error || !data) throw error || new Error('Property update failed.');
+    const updatedProp = data as Property;
     set((state) => ({
-      properties: state.properties.map((p) =>
-        p.id === propertyId ? { ...p, ...payload } : p
-      ),
+      properties: state.properties.map((p) => p.id === propertyId ? updatedProp : p),
     }));
-
-    try {
-      const { data, error } = await supabase
-        .from('properties')
-        .update(payload)
-        .eq('id', propertyId)
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Supabase property update error:', error.message);
-      } else if (data) {
-        const updatedProp = data as Property;
-        set((state) => ({
-          properties: state.properties.map((p) =>
-            p.id === propertyId ? updatedProp : p
-          ),
-        }));
-        return updatedProp;
-      }
-    } catch (e) {
-      console.error('Update property error:', e);
-    }
-
-    const currentProp = get().properties.find((p) => p.id === propertyId);
-    return (currentProp || { id: propertyId, ...updates }) as Property;
+    return updatedProp;
   },
 
   deleteProperty: async (propertyId) => {
-    set((state) => ({
-      properties: state.properties.filter((p) => p.id !== propertyId),
-    }));
-
-    try {
-      await supabase.from('properties').delete().eq('id', propertyId);
-    } catch (e) {
-      console.error('Delete property error:', e);
-    }
+    const { error } = await supabase.from('properties').delete().eq('id', propertyId);
+    if (error) throw error;
+    set((state) => ({ properties: state.properties.filter((p) => p.id !== propertyId) }));
   },
 
   updatePropertyStatus: async (propertyId, status) => {
+    const updatedAt = new Date().toISOString();
+    const { error } = await supabase
+      .from('properties')
+      .update({ status, updated_at: updatedAt })
+      .eq('id', propertyId);
+    if (error) throw error;
     set((state) => ({
       properties: state.properties.map((p) =>
-        p.id === propertyId ? { ...p, status, updated_at: new Date().toISOString() } : p
+        p.id === propertyId ? { ...p, status, updated_at: updatedAt } : p
       ),
     }));
-
-    try {
-      await supabase
-        .from('properties')
-        .update({ status, updated_at: new Date().toISOString() })
-        .eq('id', propertyId);
-    } catch (e) {}
   },
 
-  verifyLead: (leadId) => {
+  verifyLead: async (leadId) => {
+    const targetLead = get().hunterLeads.find((lead) => lead.id === leadId);
+    if (!targetLead) throw new Error('Lead not found.');
+    const { error: leadError } = await supabase
+      .from('hunter_leads').update({ status: 'Verified' }).eq('id', leadId);
+    if (leadError) throw leadError;
+    const { error: propertyError } = await supabase
+      .from('properties').update({ is_verified: true }).eq('id', targetLead.property_id);
+    if (propertyError) throw propertyError;
     set((state) => {
       const updatedLeads = state.hunterLeads.map((lead) => {
         if (lead.id === leadId) {
@@ -276,10 +270,8 @@ export const usePropertyStore = create<PropertyState>((set, get) => ({
   },
 
   addHunterLead: async (newLeadData) => {
-    const propId = `p_scout_${Date.now()}`;
-    const newProperty: Property = {
-      id: propId,
-      landlord_id: 'u3',
+    const propertyPayload = {
+      landlord_id: newLeadData.hunterId,
       hunter_id: newLeadData.hunterId,
       title: newLeadData.title,
       description: newLeadData.description || 'Off-market vacant apartment sourced on-ground by Scout.',
@@ -297,46 +289,37 @@ export const usePropertyStore = create<PropertyState>((set, get) => ({
       is_verified: false,
       rating: 5.0,
       review_count: 1,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     };
 
-    const leadId = `lead_${Date.now()}`;
-    const newLead: HunterLead = {
-      id: leadId,
+    const { data: propertyData, error: propertyError } = await supabase
+      .from('properties').insert(propertyPayload).select().single();
+    if (propertyError || !propertyData) throw propertyError || new Error('Property lead could not be saved.');
+    const newProperty = propertyData as Property;
+    const { data: leadData, error: leadError } = await supabase.from('hunter_leads').insert({
       hunter_id: newLeadData.hunterId,
-      property_id: propId,
+      property_id: newProperty.id,
       status: 'New',
       bounty_amount: newLeadData.bountyAmount || 4000,
       currency: 'KES',
       notes: newLeadData.notes || 'Off-market lead sourced on-ground.',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      property: newProperty,
-    };
+    }).select().single();
+    if (leadError || !leadData) {
+      await supabase.from('properties').delete().eq('id', newProperty.id);
+      throw leadError || new Error('Lead could not be saved.');
+    }
+    const newLead = { ...(leadData as HunterLead), property: newProperty };
 
     set((state) => ({
       properties: [newProperty, ...state.properties],
       hunterLeads: [newLead, ...state.hunterLeads],
     }));
 
-    try {
-      await supabase.from('properties').insert(newProperty);
-      await supabase.from('hunter_leads').insert({
-        id: leadId,
-        hunter_id: newLeadData.hunterId,
-        property_id: propId,
-        status: 'New',
-        bounty_amount: newLeadData.bountyAmount,
-        currency: 'KES',
-        notes: newLeadData.notes,
-      });
-    } catch (e) {}
-
     return newLead;
   },
 
-  unlockPropertyAccess: (leadId) => {
+  unlockPropertyAccess: async (leadId) => {
+    const { error } = await supabase.from('hunter_leads').update({ status: 'Booked' }).eq('id', leadId);
+    if (error) throw error;
     set((state) => ({
       hunterLeads: state.hunterLeads.map((lead) =>
         lead.id === leadId
@@ -351,60 +334,55 @@ export const usePropertyStore = create<PropertyState>((set, get) => ({
   },
 
   claimBountyPayout: async (leadId, mpesaPhone) => {
-    set((state) => ({
-      hunterLeads: state.hunterLeads.map((lead) =>
-        lead.id === leadId
-          ? {
-              ...lead,
-              notes: `Bounty paid out instantly to M-PESA (${mpesaPhone})`,
-            }
-          : lead
-      ),
-    }));
+    throw new Error('M-PESA payouts require a configured payment provider and cannot be simulated.');
   },
 
-  bookTour: (propertyId, date, time) => {
+  bookTour: async (propertyId, date, notes) => {
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) throw new Error('Sign in to schedule a viewing.');
     const prop = get().properties.find((p) => p.id === propertyId);
-    const newBooking: Booking = {
-      id: `b_${Date.now()}`,
-      client_id: 'u1',
+    const scheduledDate = new Date();
+    scheduledDate.setDate(scheduledDate.getDate() + (date.toLowerCase().includes('tomorrow') ? 1 : 2));
+    const payload = {
+      client_id: authData.user.id,
       property_id: propertyId,
       product_id: null,
       service_id: null,
-      move_in_date: date,
-      status: 'Confirmed',
+      move_in_date: scheduledDate.toISOString().slice(0, 10),
+      status: 'Pending',
       total_amount: prop ? prop.price : 0,
       currency: 'KES',
-      notes: `Viewing scheduled for ${date} at ${time}`,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      notes: `Viewing requested for ${date}${notes ? ` — ${notes}` : ''}`,
     };
+    const { data, error } = await supabase.from('bookings').insert(payload).select().single();
+    if (error || !data) throw error || new Error('Viewing request failed.');
+    const newBooking = data as Booking;
     set((state) => ({
       bookings: [newBooking, ...state.bookings],
     }));
+    return newBooking;
   },
 
-  rentProperty: (propertyId, totalAmount, notes) => {
-    const newBooking: Booking = {
-      id: `rent_${Date.now()}`,
-      client_id: 'u1',
+  rentProperty: async (propertyId, totalAmount, notes) => {
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) throw new Error('Sign in to request this property.');
+    const payload = {
+      client_id: authData.user.id,
       property_id: propertyId,
       product_id: null,
       service_id: null,
       move_in_date: new Date().toISOString().split('T')[0],
-      status: 'In_Progress',
+      status: 'Pending',
       total_amount: totalAmount,
       currency: 'KES',
-      notes: notes || 'Lease agreement signed and initial deposit held in Escrow',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      notes: notes || 'Rental and escrow payment requested',
     };
+    const { data, error } = await supabase.from('bookings').insert(payload).select().single();
+    if (error || !data) throw error || new Error('Rental request failed.');
+    const newBooking = data as Booking;
 
     set((state) => ({
       bookings: [newBooking, ...state.bookings],
-      properties: state.properties.map((p) =>
-        p.id === propertyId ? { ...p, status: 'Rented' as const } : p
-      ),
     }));
 
     return newBooking;

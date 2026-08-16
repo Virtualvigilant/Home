@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -13,15 +12,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
 import { useAuthStore } from '../../src/store/authStore';
 import { useRouter } from 'expo-router';
-
-const menuItems = [
-  { icon: 'shield-checkmark-outline', label: 'Verification', badge: 'Verified' },
-  { icon: 'document-text-outline', label: 'Lease History' },
-  { icon: 'card-outline', label: 'Payment Methods' },
-  { icon: 'notifications-outline', label: 'Notifications' },
-  { icon: 'settings-outline', label: 'Settings' },
-  { icon: 'help-circle-outline', label: 'Help & Support' },
-];
 
 export default function ProfileScreen() {
   const { user, role, signOut } = useAuthStore();
@@ -38,6 +28,30 @@ export default function ProfileScreen() {
         <View style={styles.header}>
           <Text style={styles.title}>Profile</Text>
         </View>
+
+        {user?.role_approval_status === 'pending' && user.requested_role && (
+          <View style={styles.pendingRoleBanner}>
+            <Ionicons name="time-outline" size={22} color="#F57C00" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.pendingRoleTitle}>
+                {user.requested_role.toUpperCase()} access is under review
+              </Text>
+              <Text style={styles.pendingRoleText}>
+                You can use the client dashboard now. Your specialist dashboard unlocks after an administrator approves your application.
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {user?.role_approval_status === 'rejected' && (
+          <View style={styles.pendingRoleBanner}>
+            <Ionicons name="information-circle-outline" size={22} color={Colors.error} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.pendingRoleTitle}>Specialist access was not approved</Text>
+              <Text style={styles.pendingRoleText}>Your client account remains active. Contact support if your circumstances have changed.</Text>
+            </View>
+          </View>
+        )}
 
         {/* User Card */}
         <View style={styles.userCard}>
@@ -76,26 +90,22 @@ export default function ProfileScreen() {
 
         {/* Menu Items */}
         <View style={styles.section}>
-          {menuItems.map((item, index) => (
-            <TouchableOpacity
-              key={item.label}
-              style={[
-                styles.menuItem,
-                index === menuItems.length - 1 && styles.menuItemLast,
-              ]}
-              activeOpacity={0.7}
-              onPress={() => Alert.alert(item.label, `${item.label} preferences & settings.`)}
-            >
-              <Ionicons name={item.icon as any} size={22} color={Colors.deepCocoa} />
-              <Text style={styles.menuLabel}>{item.label}</Text>
-              {item.badge && (
-                <View style={styles.menuBadge}>
-                  <Text style={styles.menuBadgeText}>{item.badge}</Text>
-                </View>
-              )}
-              <Ionicons name="chevron-forward" size={18} color={Colors.textTertiary} />
-            </TouchableOpacity>
-          ))}
+          <View style={styles.menuItem}>
+            <Ionicons name="shield-checkmark-outline" size={22} color={Colors.deepCocoa} />
+            <Text style={styles.menuLabel}>Identity verification</Text>
+            <View style={styles.menuBadge}>
+              <Text style={styles.menuBadgeText}>{user?.verification_status ? 'Verified' : 'Not verified'}</Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            style={[styles.menuItem, styles.menuItemLast]}
+            activeOpacity={0.7}
+            onPress={() => router.push('/activity')}
+          >
+            <Ionicons name="receipt-outline" size={22} color={Colors.deepCocoa} />
+            <Text style={styles.menuLabel}>My requests and orders</Text>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textTertiary} />
+          </TouchableOpacity>
         </View>
 
         {/* Sign Out */}
@@ -180,6 +190,29 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
     padding: Spacing.md,
     gap: Spacing.md,
+  },
+  pendingRoleBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FFF3E0',
+    borderWidth: 1,
+    borderColor: '#FFE0B2',
+    borderRadius: BorderRadius.lg,
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.md,
+    padding: Spacing.md,
+    gap: Spacing.sm,
+  },
+  pendingRoleTitle: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+  },
+  pendingRoleText: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
+    lineHeight: 18,
   },
   adminBannerIconBg: {
     width: 36,

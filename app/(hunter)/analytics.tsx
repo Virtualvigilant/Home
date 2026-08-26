@@ -1,12 +1,18 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
 import { usePropertyStore } from '../../src/store/propertyStore';
 
 export default function AnalyticsScreen() {
-  const { hunterLeads } = usePropertyStore();
+  const { hunterLeads, fetchProperties } = usePropertyStore();
+
+  useEffect(() => {
+    fetchProperties().catch((error: any) =>
+      Alert.alert('Data Error', error?.message || 'Unable to load analytics data.')
+    );
+  }, [fetchProperties]);
 
   const totalLeads = hunterLeads.length;
   const verifiedLeads = hunterLeads.filter((l) => l.status === 'Verified' || l.status === 'Booked').length;

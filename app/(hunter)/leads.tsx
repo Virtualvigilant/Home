@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -28,6 +28,7 @@ export default function LeadsScreen() {
 
   const {
     hunterLeads,
+    fetchProperties,
     verifyLead,
     addHunterLead,
     unlockPropertyAccess,
@@ -35,6 +36,12 @@ export default function LeadsScreen() {
   } = usePropertyStore();
 
   const { user, completeKycVerification } = useAuthStore();
+
+  useEffect(() => {
+    fetchProperties().catch((error: any) =>
+      Alert.alert('Data Error', error?.message || 'Unable to load your leads.')
+    );
+  }, [fetchProperties]);
 
   // Modals state
   const [isKycModalOpen, setIsKycModalOpen] = useState(false);

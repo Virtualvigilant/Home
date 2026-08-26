@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -16,8 +16,14 @@ import { usePropertyStore } from '../../src/store/propertyStore';
 import { useAuthStore } from '../../src/store/authStore';
 
 export default function PayoutsScreen() {
-  const { hunterLeads, claimBountyPayout } = usePropertyStore();
+  const { hunterLeads, fetchProperties, claimBountyPayout } = usePropertyStore();
   const { user } = useAuthStore();
+
+  useEffect(() => {
+    fetchProperties().catch((error: any) =>
+      Alert.alert('Data Error', error?.message || 'Unable to load payout data.')
+    );
+  }, [fetchProperties]);
 
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
   const [selectedLeadForPayout, setSelectedLeadForPayout] = useState<any | null>(null);

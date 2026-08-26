@@ -17,11 +17,12 @@ import { getValidPropertyImages, DEFAULT_PROPERTY_IMAGE, uploadPickedImage } fro
 import { FilterTabs, PropertyListingCard } from '../../src/components';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
 import { usePropertyStore } from '../../src/store/propertyStore';
+import { useHouseRequestStore } from '../../src/store/houseRequestStore';
 import { useAuthStore } from '../../src/store/authStore';
-import { Property } from '../../src/lib/database.types';
+import { Property, HouseRequest } from '../../src/lib/database.types';
 import { useRouter } from 'expo-router';
 
-const TABS = ['Listed', 'Inquiries'];
+const TABS = ['My Listed Properties', 'Tenant Requests & Inquiries'];
 
 interface AmenityOption {
   id: string;
@@ -52,14 +53,17 @@ export default function PortfolioScreen() {
   const [activeTab, setActiveTab] = useState(0);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null);
+  const [pitchModalRequest, setPitchModalRequest] = useState<HouseRequest | null>(null);
   const router = useRouter();
 
   const { properties, addProperty, updateProperty, deleteProperty, fetchProperties } = usePropertyStore();
+  const { requests, fetchHouseRequests } = useHouseRequestStore();
   const { user } = useAuthStore();
 
   useEffect(() => {
     fetchProperties();
-  }, []);
+    fetchHouseRequests().catch(() => undefined);
+  }, [fetchProperties, fetchHouseRequests]);
 
   // Form State
   const [title, setTitle] = useState('');
@@ -314,12 +318,93 @@ export default function PortfolioScreen() {
         )}
 
         {activeTab === 1 && (
-          <View style={styles.emptyState}>
-            <Ionicons name="mail-outline" size={48} color={Colors.textTertiary} />
-            <Text style={styles.emptyTitle}>No inquiries yet</Text>
-            <Text style={styles.emptySubtitle}>
-              When clients inquire about your properties, they'll appear here.
-            </Text>
+          <View style={styles.tenantRequestsContainer}>
+            <View style={styles.demandsHeaderBanner}>
+              <Ionicons name="flash" size={20} color={Colors.matteClay} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.demandsHeaderTitle}>Live Tenant Acquisition Demands</Text>
+                <Text style={styles.demandsHeaderSub}>
+                  Clients currently broadcasting housing needs in Nairobi. Pitch your matching vacant units or message them directly.
+                </Text>
+              </View>
+            </View>
+
+            {requests.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="mail-outline" size={48} color={Colors.textTertiary} />
+                <Text style={styles.emptyTitle}>No active tenant requests</Text>
+                <Text style={styles.emptySubtitle}>
+                  When clients post housing requests for your area, they will appear here in real-time.
+                </Text>
+              </View>
+            ) : (
+              requests.map((req) => (
+                <View key={req.id} style={styles.tenantRequestCard}>
+                  <View style={styles.tenantCardHeader}>
+                    <View style={styles.tenantUserRow}>
+                      <Image
+                        source={{ uri: req.client?.avatar_url || 'https://i.pravatar.cc/150?img=33' }}
+                        style={styles.tenantAvatar}
+                        contentFit="cover"
+                      />
+                      <View>
+                        <Text style={styles.tenantName}>{req.client?.display_name || 'Prospective Tenant'}</Text>
+                        <Text style={styles.tenantCity}>{req.location}, {req.city}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.tenantBudgetBadge}>
+                      <Text style={styles.tenantBudgetText}>Max KES {req.max_budget.toLocaleString()}</Text>
+                      <Text style={styles.tenantBudgetSub}>Monthly Budget</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.tenantSpecsRow}>
+                    <View style={styles.tenantSpecChip}>
+                      <Ionicons name="bed-outline" size={14} color={Colors.matteClay} />
+                      <Text style={styles.tenantSpecText}>{req.bedrooms} Bedroom(s)</Text>
+                    </View>
+                    <View style={styles.tenantSpecChip}>
+                      <Ionicons name="calendar-outline" size={14} color={Colors.deepCocoa} />
+                      <Text style={styles.tenantSpecText}>Move-In: {req.move_in_date}</Text>
+                    </View>
+                  </View>
+
+                  {req.description ? (
+                    <Text style={styles.tenantNotesText}>"{req.description}"</Text>
+                  ) : null}
+
+                  {req.amenities.length > 0 && (
+                    <View style={styles.tenantAmenitiesRow}>
+                      {req.amenities.map((am, idx) => (
+                        <View key={idx} style={styles.tenantAmenityChip}>
+                          <Text style={styles.tenantAmenityText}>{am}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  <View style={styles.tenantCardActions}>
+                    <TouchableOpacity
+                      style={styles.chatTenantBtn}
+                      onPress={() => router.push('/(landlord)/messages')}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="chatbubble-outline" size={16} color={Colors.deepCocoa} />
+                      <Text style={styles.chatTenantBtnText}>Chat Tenant</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.pitchPropertyBtn}
+                      onPress={() => setPitchModalRequest(req)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="send" size={16} color={Colors.white} />
+                      <Text style={styles.pitchPropertyBtnText}>Pitch My Property</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))
+            )}
           </View>
         )}
 
@@ -335,6 +420,68 @@ export default function PortfolioScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* PITCH PROPERTY MODAL */}
+      <Modal visible={pitchModalRequest !== null} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Pitch Matching Property</Text>
+                <Text style={styles.modalSub}>
+                  Select one of your listings to pitch to {pitchModalRequest?.client?.display_name || 'this client'}:
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setPitchModalRequest(null)}>
+                <Ionicons name="close" size={24} color={Colors.deepCocoa} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {landlordProperties.length === 0 ? (
+                <View style={{ alignItems: 'center', paddingVertical: Spacing.xl }}>
+                  <Ionicons name="business-outline" size={40} color={Colors.textTertiary} />
+                  <Text style={[styles.emptyTitle, { fontSize: 16, marginTop: Spacing.sm }]}>No Listed Properties</Text>
+                  <Text style={[styles.emptySubtitle, { marginVertical: Spacing.xs }]}>
+                    You need to list a property first before pitching to prospective tenants.
+                  </Text>
+                </View>
+              ) : (
+                landlordProperties.map((prop) => (
+                  <TouchableOpacity
+                    key={prop.id}
+                    style={styles.pitchListingItem}
+                    onPress={() => {
+                      setPitchModalRequest(null);
+                      Alert.alert(
+                        'Property Pitched! 🎉',
+                        `"${prop.title}" was offered to the client for their request in ${pitchModalRequest?.location}. You can continue the conversation in Messages.`,
+                        [
+                          { text: 'OK' },
+                          { text: 'Open Chat', onPress: () => router.push('/(landlord)/messages') },
+                        ]
+                      );
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Image
+                      source={{ uri: getValidPropertyImages(prop.images)[0] }}
+                      style={styles.pitchThumb}
+                      contentFit="cover"
+                    />
+                    <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+                      <Text style={styles.pitchTitle} numberOfLines={1}>{prop.title}</Text>
+                      <Text style={styles.pitchSub}>{prop.location} • {prop.bedrooms} Bed</Text>
+                      <Text style={styles.pitchPrice}>KES {prop.price.toLocaleString()}/mo</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color={Colors.matteClay} />
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* ADD / EDIT PROPERTY MODAL */}
       <Modal visible={isAddModalOpen} transparent animationType="slide">
@@ -591,6 +738,11 @@ const styles = StyleSheet.create({
     fontWeight: Typography.bold,
     color: Colors.deepCocoa,
   },
+  modalSub: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
   inputLabel: {
     fontSize: Typography.bodySmall,
     fontWeight: Typography.semiBold,
@@ -741,4 +893,195 @@ const styles = StyleSheet.create({
     fontSize: Typography.body,
     fontWeight: Typography.bold,
   },
+
+  // Tenant Requests & Inquiries Tab Styles
+  tenantRequestsContainer: {
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.md,
+  },
+  demandsHeaderBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    backgroundColor: '#F5EDE4',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.md,
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.matteClay,
+  },
+  demandsHeaderTitle: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+  },
+  demandsHeaderSub: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
+    lineHeight: 18,
+  },
+  tenantRequestCard: {
+    backgroundColor: Colors.white,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    ...Shadows.card,
+  },
+  tenantCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  tenantUserRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    flex: 1,
+  },
+  tenantAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  tenantName: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+  },
+  tenantCity: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 1,
+  },
+  tenantBudgetBadge: {
+    alignItems: 'flex-end',
+  },
+  tenantBudgetText: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+    color: Colors.matteClay,
+  },
+  tenantBudgetSub: {
+    fontSize: Typography.tiny,
+    color: Colors.textTertiary,
+    marginTop: 1,
+  },
+  tenantSpecsRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    marginVertical: Spacing.sm,
+  },
+  tenantSpecChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.softCream,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.pill,
+  },
+  tenantSpecText: {
+    fontSize: Typography.caption,
+    fontWeight: Typography.semiBold,
+    color: Colors.deepCocoa,
+  },
+  tenantNotesText: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    fontStyle: 'italic',
+    lineHeight: 18,
+    marginBottom: Spacing.xs,
+  },
+  tenantAmenitiesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginVertical: Spacing.xs,
+  },
+  tenantAmenityChip: {
+    backgroundColor: '#F5EDE4',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.pill,
+  },
+  tenantAmenityText: {
+    fontSize: 10,
+    color: Colors.matteClay,
+    fontWeight: Typography.semiBold,
+  },
+  tenantCardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.divider,
+  },
+  chatTenantBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: Colors.softCream,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.pill,
+    flex: 1,
+  },
+  chatTenantBtnText: {
+    fontSize: Typography.caption,
+    fontWeight: Typography.semiBold,
+    color: Colors.deepCocoa,
+  },
+  pitchPropertyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: Colors.matteClay,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.pill,
+    flex: 1.2,
+  },
+  pitchPropertyBtnText: {
+    fontSize: Typography.caption,
+    fontWeight: Typography.bold,
+    color: Colors.white,
+  },
+
+  // Pitch Modal Styles
+  pitchListingItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.softCream,
+    padding: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+  },
+  pitchThumb: {
+    width: 60,
+    height: 60,
+    borderRadius: BorderRadius.sm,
+  },
+  pitchTitle: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+  },
+  pitchSub: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  pitchPrice: {
+    fontSize: Typography.caption,
+    fontWeight: Typography.bold,
+    color: Colors.matteClay,
+    marginTop: 2,
+  },
 });
+

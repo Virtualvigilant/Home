@@ -16,11 +16,13 @@ import * as ImagePicker from 'expo-image-picker';
 import { FilterTabs, LeadCard } from '../../src/components';
 import { Colors, Spacing, Typography, BorderRadius, Shadows } from '../../src/constants/theme';
 import { usePropertyStore } from '../../src/store/propertyStore';
+import { useHouseRequestStore } from '../../src/store/houseRequestStore';
 import { useAuthStore } from '../../src/store/authStore';
 import { getValidPropertyImages, DEFAULT_PROPERTY_IMAGE, uploadPickedImage } from '../../src/lib/imageUtils';
+import { HouseRequest } from '../../src/lib/database.types';
 import { useRouter } from 'expo-router';
 
-const TABS = ['All Sourced Leads', 'Move-In Ready', 'Verified'];
+const TABS = ['All Sourced Leads', 'Move-In Ready', 'Verified', 'Client Demands'];
 
 export default function LeadsScreen() {
   const [activeTab, setActiveTab] = useState(0);
@@ -35,13 +37,15 @@ export default function LeadsScreen() {
     toggleWishlist,
   } = usePropertyStore();
 
+  const { requests, fetchHouseRequests } = useHouseRequestStore();
   const { user, completeKycVerification } = useAuthStore();
 
   useEffect(() => {
     fetchProperties().catch((error: any) =>
       Alert.alert('Data Error', error?.message || 'Unable to load your leads.')
     );
-  }, [fetchProperties]);
+    fetchHouseRequests().catch(() => undefined);
+  }, [fetchProperties, fetchHouseRequests]);
 
   // Modals state
   const [isKycModalOpen, setIsKycModalOpen] = useState(false);
@@ -70,6 +74,18 @@ export default function LeadsScreen() {
   // Handlers
   const handleLeadPress = (propertyId: string) => {
     router.push(`/property/${propertyId}`);
+  };
+
+  const handleSourceForClient = (req: HouseRequest) => {
+    setTitle(`Vacant ${req.bedrooms}-Bed in ${req.location}`);
+    setLocation(req.location);
+    setPrice(`${req.max_budget}`);
+    setBounty('4000');
+    setBedrooms(`${req.bedrooms}`);
+    setBathrooms(`${req.bathrooms || 1}`);
+    setDescription(`Targeted on-ground sourcing to fulfill client demand in ${req.location}.`);
+    setScoutNotes(`Sourced specifically for client demand: ${req.client?.display_name || 'Client'} (${req.location})`);
+    setIsSourceModalOpen(true);
   };
 
   const handleVerify = async (leadId: string, leadTitle: string) => {
@@ -265,74 +281,166 @@ export default function LeadsScreen() {
         {/* Tabs */}
         <FilterTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
 
-        {/* 3. LEADS & ENGAGEMENT LIST */}
-        <View style={styles.leadsList}>
-          {filteredLeads.map((lead) => {
-            const prop = lead.property;
-            if (!prop) return null;
+        {/* 3. CLIENT DEMANDS / ACQUISITION REQUESTS TAB */}
+        {activeTab === 3 ? (
+          <View style={styles.demandsContainer}>
+            <View style={styles.scoutDemandBanner}>
+              <Ionicons name="flash" size={22} color={Colors.matteClay} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.scoutDemandBannerTitle}>Live Client Housing Demands</Text>
+                <Text style={styles.scoutDemandBannerSub}>
+                  Clients broadcasting home requests in Nairobi. Tap "Source for Client" to auto-fill property details and claim your finder bounty!
+                </Text>
+              </View>
+            </View>
 
-            return (
-              <View key={lead.id} style={styles.leadCardContainer}>
-                {/* Geotag Badge Overlay */}
-                <View style={styles.geotagBadge}>
-                  <Ionicons name="navigate" size={12} color={Colors.white} />
-                  <Text style={styles.geotagText}>
-                    Geotagged ({prop.latitude?.toFixed(4)}, {prop.longitude?.toFixed(4)})
-                  </Text>
-                </View>
+            {requests.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="search-outline" size={48} color={Colors.textTertiary} />
+                <Text style={styles.emptyTitle}>No active client demands</Text>
+                <Text style={styles.emptySubtitle}>
+                  When clients post housing requests, they will appear here as high-priority sourcing opportunities.
+                </Text>
+              </View>
+            ) : (
+              requests.map((req) => (
+                <View key={req.id} style={styles.scoutDemandCard}>
+                  <View style={styles.demandCardHeader}>
+                    <View style={styles.demandUserRow}>
+                      <Image
+                        source={{ uri: req.client?.avatar_url || 'https://i.pravatar.cc/150?img=12' }}
+                        style={styles.demandAvatar}
+                        contentFit="cover"
+                      />
+                      <View>
+                        <Text style={styles.demandClientName}>{req.client?.display_name || 'Verified Client'}</Text>
+                        <Text style={styles.demandLocationText}>{req.location}, {req.city}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.demandBudgetBadge}>
+                      <Text style={styles.demandBudgetValue}>KES {req.max_budget.toLocaleString()}</Text>
+                      <Text style={styles.demandBudgetSub}>Max Rent</Text>
+                    </View>
+                  </View>
 
-                <LeadCard
-                  lead={lead}
-                  onPress={() => handleLeadPress(lead.property_id)}
-                  onVerify={() => handleVerify(lead.id, prop.title)}
-                  onWishlist={() => toggleWishlist(lead.property_id)}
-                />
+                  <View style={styles.demandSpecsRow}>
+                    <View style={styles.demandSpecChip}>
+                      <Ionicons name="bed-outline" size={14} color={Colors.matteClay} />
+                      <Text style={styles.demandSpecText}>{req.bedrooms} Bedroom(s)</Text>
+                    </View>
+                    <View style={styles.demandSpecChip}>
+                      <Ionicons name="calendar-outline" size={14} color={Colors.deepCocoa} />
+                      <Text style={styles.demandSpecText}>Move-In: {req.move_in_date}</Text>
+                    </View>
+                  </View>
 
-                {/* Hunter Action Bar for Move-In Coordination & Communication */}
-                <View style={styles.hunterActionBar}>
-                  <TouchableOpacity
-                    style={styles.actionBtnSecondary}
-                    onPress={() => router.push('/(client)/messages')}
-                  >
-                    <Ionicons name="chatbubble-ellipses-outline" size={16} color={Colors.deepCocoa} />
-                    <Text style={styles.actionBtnSecondaryText}>Chat Client</Text>
-                  </TouchableOpacity>
+                  {req.description ? (
+                    <Text style={styles.demandNotesText}>"{req.description}"</Text>
+                  ) : null}
 
-                  {lead.status === 'Booked' ? (
-                    <TouchableOpacity
-                      style={styles.actionBtnSuccess}
-                      onPress={() => handleUnlockMoveIn(lead.id, prop.title)}
-                    >
-                      <Ionicons name="key" size={16} color={Colors.white} />
-                      <Text style={styles.actionBtnSuccessText}>Unlock Key & Confirm Move-In</Text>
-                    </TouchableOpacity>
-                  ) : lead.status === 'New' ? (
-                    <TouchableOpacity
-                      style={styles.actionBtnPrimary}
-                      onPress={() => handleVerify(lead.id, prop.title)}
-                    >
-                      <Ionicons name="checkmark-circle-outline" size={16} color={Colors.white} />
-                      <Text style={styles.actionBtnPrimaryText}>Verify On-Ground</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <View style={styles.verifiedTag}>
-                      <Ionicons name="shield-checkmark" size={14} color={Colors.badgeVerified} />
-                      <Text style={styles.verifiedTagText}>Physically Verified</Text>
+                  {req.amenities.length > 0 && (
+                    <View style={styles.demandAmenitiesRow}>
+                      {req.amenities.map((am, idx) => (
+                        <View key={idx} style={styles.demandAmenityChip}>
+                          <Text style={styles.demandAmenityText}>{am}</Text>
+                        </View>
+                      ))}
                     </View>
                   )}
-                </View>
-              </View>
-            );
-          })}
-        </View>
 
-        {filteredLeads.length === 0 && (
-          <View style={styles.emptyState}>
-            <Ionicons name="search-outline" size={48} color={Colors.textTertiary} />
-            <Text style={styles.emptyTitle}>No leads in this view</Text>
-            <Text style={styles.emptySubtitle}>
-              Tap "Source Off-Market Apartment" to add new vacant listings and earn bounties!
-            </Text>
+                  <View style={styles.demandCardActions}>
+                    <TouchableOpacity
+                      style={styles.chatClientDemandBtn}
+                      onPress={() => router.push('/(client)/messages')}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="chatbubble-outline" size={16} color={Colors.deepCocoa} />
+                      <Text style={styles.chatClientDemandText}>Chat Client</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.sourceForClientBtn}
+                      onPress={() => handleSourceForClient(req)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="flash" size={16} color={Colors.white} />
+                      <Text style={styles.sourceForClientBtnText}>⚡ Source for Client</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        ) : (
+          /* REGULAR LEADS LIST */
+          <View style={styles.leadsList}>
+            {filteredLeads.map((lead) => {
+              const prop = lead.property;
+              if (!prop) return null;
+
+              return (
+                <View key={lead.id} style={styles.leadCardContainer}>
+                  {/* Geotag Badge Overlay */}
+                  <View style={styles.geotagBadge}>
+                    <Ionicons name="navigate" size={12} color={Colors.white} />
+                    <Text style={styles.geotagText}>
+                      Geotagged ({prop.latitude?.toFixed(4)}, {prop.longitude?.toFixed(4)})
+                    </Text>
+                  </View>
+
+                  <LeadCard
+                    lead={lead}
+                    onPress={() => handleLeadPress(lead.property_id)}
+                    onVerify={() => handleVerify(lead.id, prop.title)}
+                    onWishlist={() => toggleWishlist(lead.property_id)}
+                  />
+
+                  {/* Hunter Action Bar for Move-In Coordination & Communication */}
+                  <View style={styles.hunterActionBar}>
+                    <TouchableOpacity
+                      style={styles.actionBtnSecondary}
+                      onPress={() => router.push('/(client)/messages')}
+                    >
+                      <Ionicons name="chatbubble-ellipses-outline" size={16} color={Colors.deepCocoa} />
+                      <Text style={styles.actionBtnSecondaryText}>Chat Client</Text>
+                    </TouchableOpacity>
+
+                    {lead.status === 'Booked' ? (
+                      <TouchableOpacity
+                        style={styles.actionBtnSuccess}
+                        onPress={() => handleUnlockMoveIn(lead.id, prop.title)}
+                      >
+                        <Ionicons name="key" size={16} color={Colors.white} />
+                        <Text style={styles.actionBtnSuccessText}>Unlock Key & Confirm Move-In</Text>
+                      </TouchableOpacity>
+                    ) : lead.status === 'New' ? (
+                      <TouchableOpacity
+                        style={styles.actionBtnPrimary}
+                        onPress={() => handleVerify(lead.id, prop.title)}
+                      >
+                        <Ionicons name="checkmark-circle-outline" size={16} color={Colors.white} />
+                        <Text style={styles.actionBtnPrimaryText}>Verify On-Ground</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={styles.verifiedTag}>
+                        <Ionicons name="shield-checkmark" size={14} color={Colors.badgeVerified} />
+                        <Text style={styles.verifiedTagText}>Physically Verified</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+
+            {filteredLeads.length === 0 && (
+              <View style={styles.emptyState}>
+                <Ionicons name="search-outline" size={48} color={Colors.textTertiary} />
+                <Text style={styles.emptyTitle}>No leads in this view</Text>
+                <Text style={styles.emptySubtitle}>
+                  Tap "Source Off-Market Apartment" to add new vacant listings and earn bounties!
+                </Text>
+              </View>
+            )}
           </View>
         )}
 
@@ -665,4 +773,164 @@ const styles = StyleSheet.create({
   thumbImg: { width: '100%', height: '100%' },
   confirmBtn: { backgroundColor: Colors.matteClay, borderRadius: BorderRadius.pill, paddingVertical: Spacing.md, alignItems: 'center', marginTop: Spacing.md, marginBottom: Spacing.md },
   confirmBtnText: { color: Colors.white, fontSize: Typography.body, fontWeight: Typography.bold },
+
+  // Client Demands Tab Styles
+  demandsContainer: {
+    paddingHorizontal: Spacing.lg,
+    marginTop: Spacing.xs,
+  },
+  scoutDemandBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    backgroundColor: '#F5EDE4',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.md,
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.matteClay,
+  },
+  scoutDemandBannerTitle: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+  },
+  scoutDemandBannerSub: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
+    lineHeight: 18,
+  },
+  scoutDemandCard: {
+    backgroundColor: Colors.white,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    ...Shadows.card,
+  },
+  demandCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  demandUserRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    flex: 1,
+  },
+  demandAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  demandClientName: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+    color: Colors.deepCocoa,
+  },
+  demandLocationText: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 1,
+  },
+  demandBudgetBadge: {
+    alignItems: 'flex-end',
+  },
+  demandBudgetValue: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.bold,
+    color: Colors.matteClay,
+  },
+  demandBudgetSub: {
+    fontSize: Typography.tiny,
+    color: Colors.textTertiary,
+    marginTop: 1,
+  },
+  demandSpecsRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    marginVertical: Spacing.sm,
+  },
+  demandSpecChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.softCream,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.pill,
+  },
+  demandSpecText: {
+    fontSize: Typography.caption,
+    fontWeight: Typography.semiBold,
+    color: Colors.deepCocoa,
+  },
+  demandNotesText: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    fontStyle: 'italic',
+    lineHeight: 18,
+    marginBottom: Spacing.xs,
+  },
+  demandAmenitiesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginVertical: Spacing.xs,
+  },
+  demandAmenityChip: {
+    backgroundColor: '#F5EDE4',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.pill,
+  },
+  demandAmenityText: {
+    fontSize: 10,
+    color: Colors.matteClay,
+    fontWeight: Typography.semiBold,
+  },
+  demandCardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.divider,
+  },
+  chatClientDemandBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: Colors.softCream,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.pill,
+    flex: 1,
+  },
+  chatClientDemandText: {
+    fontSize: Typography.caption,
+    fontWeight: Typography.semiBold,
+    color: Colors.deepCocoa,
+  },
+  sourceForClientBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: Colors.matteClay,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.pill,
+    flex: 1.3,
+  },
+  sourceForClientBtnText: {
+    fontSize: Typography.caption,
+    fontWeight: Typography.bold,
+    color: Colors.white,
+  },
 });
+

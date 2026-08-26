@@ -155,3 +155,27 @@ export interface Review {
   comment: string | null;
   created_at: string;
 }
+
+export type HouseRequestStatus = 'Active' | 'Fulfilled' | 'Cancelled';
+
+export interface HouseRequest {
+  id: string;
+  client_id: string;
+  location: string;
+  city: string;
+  max_budget: number;
+  min_budget?: number | null;
+  currency: string;
+  bedrooms: number;
+  bathrooms: number;
+  move_in_date: string;
+  amenities: string[];
+  description: string;
+  status: HouseRequestStatus;
+  responses_count: number;
+  created_at: string;
+  updated_at: string;
+  // Joined client profile
+  client?: Profile;
+}
+

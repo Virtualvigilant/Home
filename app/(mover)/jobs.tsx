@@ -8,6 +8,7 @@ import {
   Modal,
   Alert,
   Linking,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -20,15 +21,24 @@ const TABS = ['Open Moving Gigs', 'My Accepted Jobs'];
 
 export default function JobsScreen() {
   const [activeTab, setActiveTab] = useState(0);
-  const { jobs, acceptJob, startGpsNavigation, fetchJobs } = useMoverStore();
+  const { jobs, myServices, acceptJob, startGpsNavigation, fetchJobs, fetchMyServices, createService, updateService } = useMoverStore();
 
   useEffect(() => {
     fetchJobs().catch((error) => Alert.alert('Jobs Error', error?.message || 'Unable to load moving jobs.'));
-  }, [fetchJobs]);
+    fetchMyServices().catch((error) => Alert.alert('Service Error', error?.message || 'Unable to load your services.'));
+  }, [fetchJobs, fetchMyServices]);
 
   // GPS Route Modal State
   const [selectedGpsJob, setSelectedGpsJob] = useState<MoverJob | null>(null);
   const [isGpsModalOpen, setIsGpsModalOpen] = useState(false);
+
+  // Create Service Modal State
+  const [isCreateServiceOpen, setIsCreateServiceOpen] = useState(false);
+  const [serviceName, setServiceName] = useState('');
+  const [servicePrice, setServicePrice] = useState('');
+  const [serviceDescription, setServiceDescription] = useState('');
+
+  const hasActiveService = myServices.length > 0;
 
   const handleAccept = async (job: MoverJob) => {
     try {
@@ -49,6 +59,54 @@ export default function JobsScreen() {
     }
   };
 
+  const handleCreateService = async () => {
+    if (!serviceName.trim()) {
+      Alert.alert('Missing Info', 'Please enter a name for your moving service.');
+      return;
+    }
+    if (!servicePrice.trim()) {
+      Alert.alert('Missing Info', 'Please enter a base price for your moving service.');
+      return;
+    }
+
+    const priceNum = parseInt(servicePrice.replace(/[^0-9]/g, ''), 10);
+    if (!priceNum || priceNum <= 0) {
+      Alert.alert('Invalid Price', 'Please enter a valid price greater than 0.');
+      return;
+    }
+
+    try {
+      const service = await createService({
+        name: serviceName.trim(),
+        description: serviceDescription.trim() || 'Professional local hauling and relocation service across Nairobi.',
+        price: priceNum,
+      });
+      setIsCreateServiceOpen(false);
+      setServiceName('');
+      setServicePrice('');
+      setServiceDescription('');
+      Alert.alert('Service Published! 🎉', `"${service.name}" is now live. Clients can find and book your moving service.`);
+    } catch (error: any) {
+      Alert.alert('Service Creation Failed', error?.message || 'Unable to publish your moving service.');
+    }
+  };
+
+  const handleToggleAvailability = async () => {
+    if (myServices.length === 0) return;
+    const service = myServices[0];
+    try {
+      await updateService(service.id, { availability: !service.availability });
+      Alert.alert(
+        service.availability ? 'Service Paused' : 'Service Activated',
+        service.availability
+          ? 'Your moving service is now hidden from clients.'
+          : 'Your moving service is now visible and accepting bookings.'
+      );
+    } catch (error: any) {
+      Alert.alert('Update Failed', error?.message || 'Unable to update service availability.');
+    }
+  };
+
   const filteredJobs = activeTab === 0
     ? jobs.filter((j) => j.status === 'Open')
     : jobs.filter((j) => j.status !== 'Open');
@@ -61,6 +119,52 @@ export default function JobsScreen() {
           <Text style={styles.subtitle}>Local relocation jobs linked with client move-in dates</Text>
         </View>
 
+        {/* Service Status Banner or Create Service Card */}
+        {hasActiveService ? (
+          <View style={styles.serviceBanner}>
+            <View style={styles.serviceBannerLeft}>
+              <View style={[styles.serviceStatusDot, myServices[0].availability ? styles.statusDotActive : styles.statusDotPaused]} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.serviceBannerTitle}>{myServices[0].name}</Text>
+                <Text style={styles.serviceBannerSub}>
+                  KES {Number(myServices[0].price).toLocaleString()} • {myServices[0].availability ? 'Accepting bookings' : 'Paused'}
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={[styles.toggleBtn, !myServices[0].availability && styles.toggleBtnActive]}
+              onPress={handleToggleAvailability}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name={myServices[0].availability ? 'pause-circle' : 'play-circle'}
+                size={16}
+                color={Colors.white}
+              />
+              <Text style={styles.toggleBtnText}>
+                {myServices[0].availability ? 'Pause' : 'Go Live'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={styles.createServiceCard}
+            onPress={() => setIsCreateServiceOpen(true)}
+            activeOpacity={0.8}
+          >
+            <View style={styles.createServiceIcon}>
+              <Ionicons name="bus" size={28} color={Colors.matteClay} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.createServiceTitle}>Create Your Moving Service</Text>
+              <Text style={styles.createServiceSub}>
+                Set up your mover profile so clients can find and book you for local hauling gigs.
+              </Text>
+            </View>
+            <Ionicons name="arrow-forward-circle" size={28} color={Colors.matteClay} />
+          </TouchableOpacity>
+        )}
+
         <FilterTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
 
         {filteredJobs.length === 0 ? (
@@ -71,9 +175,21 @@ export default function JobsScreen() {
             </Text>
             <Text style={styles.emptySubtitle}>
               {activeTab === 0
-                ? 'New local relocation requests from clients moving in across Nairobi will appear here.'
+                ? hasActiveService
+                  ? 'New local relocation requests from clients moving in across Nairobi will appear here.'
+                  : 'Create your moving service first so clients can book you for hauling gigs.'
                 : 'Jobs you accept from the "Open Moving Gigs" tab will be managed here.'}
             </Text>
+            {activeTab === 0 && !hasActiveService && (
+              <TouchableOpacity
+                style={styles.emptyActionBtn}
+                onPress={() => setIsCreateServiceOpen(true)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add-circle" size={18} color={Colors.white} />
+                <Text style={styles.emptyActionBtnText}>Create Moving Service</Text>
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
           filteredJobs.map((job) => {
@@ -203,6 +319,67 @@ export default function JobsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* CREATE MOVING SERVICE MODAL */}
+      <Modal visible={isCreateServiceOpen} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Create Moving Service</Text>
+              <TouchableOpacity onPress={() => setIsCreateServiceOpen(false)}>
+                <Ionicons name="close" size={24} color={Colors.deepCocoa} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.createModalHint}>
+                <Ionicons name="information-circle-outline" size={18} color={Colors.matteClay} />
+                <Text style={styles.createModalHintText}>
+                  This will publish your moving service so clients can find and book you for local hauling and relocation gigs.
+                </Text>
+              </View>
+
+              <Text style={styles.inputLabel}>Service Name</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="e.g. Swift Nairobi Movers"
+                placeholderTextColor={Colors.textTertiary}
+                value={serviceName}
+                onChangeText={setServiceName}
+              />
+
+              <Text style={styles.inputLabel}>Base Price (KES)</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="e.g. 5000"
+                placeholderTextColor={Colors.textTertiary}
+                keyboardType="number-pad"
+                value={servicePrice}
+                onChangeText={setServicePrice}
+              />
+
+              <Text style={styles.inputLabel}>Description</Text>
+              <TextInput
+                style={[styles.textInput, { height: 100, textAlignVertical: 'top' }]}
+                placeholder="Describe what your moving service includes — e.g. truck size, coverage area, packing support, number of movers..."
+                placeholderTextColor={Colors.textTertiary}
+                multiline
+                value={serviceDescription}
+                onChangeText={setServiceDescription}
+              />
+
+              <TouchableOpacity
+                style={styles.publishBtn}
+                onPress={handleCreateService}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="rocket" size={18} color={Colors.white} />
+                <Text style={styles.publishBtnText}>Publish Moving Service</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -212,6 +389,66 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg, paddingBottom: Spacing.md },
   title: { fontSize: Typography.h1, fontWeight: Typography.bold, color: Colors.deepCocoa },
   subtitle: { fontSize: Typography.bodySmall, color: Colors.textSecondary, marginTop: 2 },
+
+  // Service Banner (when service exists)
+  serviceBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.white,
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.badgeSuccess,
+    ...Shadows.card,
+  },
+  serviceBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flex: 1 },
+  serviceStatusDot: { width: 10, height: 10, borderRadius: 5 },
+  statusDotActive: { backgroundColor: Colors.badgeSuccess },
+  statusDotPaused: { backgroundColor: Colors.textTertiary },
+  serviceBannerTitle: { fontSize: Typography.bodySmall, fontWeight: Typography.bold, color: Colors.deepCocoa },
+  serviceBannerSub: { fontSize: Typography.caption, color: Colors.textSecondary, marginTop: 1 },
+  toggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.textSecondary,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.pill,
+  },
+  toggleBtnActive: { backgroundColor: Colors.badgeSuccess },
+  toggleBtnText: { color: Colors.white, fontSize: Typography.caption, fontWeight: Typography.bold },
+
+  // Create Service Card (when no service exists)
+  createServiceCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    backgroundColor: Colors.white,
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 2,
+    borderColor: Colors.matteClay,
+    borderStyle: 'dashed',
+    ...Shadows.card,
+  },
+  createServiceIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#F5EDE4',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  createServiceTitle: { fontSize: Typography.body, fontWeight: Typography.bold, color: Colors.deepCocoa },
+  createServiceSub: { fontSize: Typography.caption, color: Colors.textSecondary, marginTop: 2, lineHeight: 18 },
+
+  // Empty state
   emptyCard: {
     backgroundColor: Colors.white,
     marginHorizontal: Spacing.lg,
@@ -224,6 +461,19 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: Typography.h3, fontWeight: Typography.bold, color: Colors.deepCocoa, marginTop: Spacing.sm },
   emptySubtitle: { fontSize: Typography.bodySmall, color: Colors.textSecondary, textAlign: 'center', marginTop: Spacing.xs, lineHeight: 20 },
+  emptyActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.matteClay,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.pill,
+    marginTop: Spacing.md,
+  },
+  emptyActionBtnText: { color: Colors.white, fontSize: Typography.bodySmall, fontWeight: Typography.bold },
+
+  // Job cards
   jobCard: {
     backgroundColor: Colors.white,
     borderRadius: BorderRadius.lg,
@@ -253,8 +503,10 @@ const styles = StyleSheet.create({
   acceptBtnText: { color: Colors.white, fontSize: Typography.bodySmall, fontWeight: Typography.bold },
   gpsBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: Colors.deepCocoa, borderRadius: BorderRadius.pill, paddingVertical: Spacing.md },
   gpsBtnText: { color: Colors.white, fontSize: Typography.bodySmall, fontWeight: Typography.bold },
+
+  // GPS modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: Colors.white, borderTopLeftRadius: BorderRadius.xl, borderTopRightRadius: BorderRadius.xl, padding: Spacing.xl },
+  modalContent: { backgroundColor: Colors.white, borderTopLeftRadius: BorderRadius.xl, borderTopRightRadius: BorderRadius.xl, padding: Spacing.xl, maxHeight: '88%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
   modalTitle: { fontSize: Typography.h3, fontWeight: Typography.bold, color: Colors.deepCocoa },
   mapPreviewBox: { backgroundColor: '#F3F4F6', borderRadius: BorderRadius.lg, padding: Spacing.xl, alignItems: 'center', marginBottom: Spacing.md },
@@ -267,4 +519,30 @@ const styles = StyleSheet.create({
   navDetailText: { fontSize: Typography.bodySmall, color: Colors.deepCocoa, marginTop: 2 },
   closeGpsBtn: { backgroundColor: Colors.matteClay, borderRadius: BorderRadius.pill, paddingVertical: Spacing.md, alignItems: 'center' },
   closeGpsBtnText: { color: Colors.white, fontSize: Typography.bodySmall, fontWeight: Typography.bold },
+
+  // Create Service modal
+  createModalHint: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+    backgroundColor: '#F5EDE4',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.md,
+  },
+  createModalHintText: { fontSize: Typography.caption, color: Colors.deepCocoa, flex: 1, lineHeight: 18 },
+  inputLabel: { fontSize: Typography.bodySmall, fontWeight: Typography.semiBold, color: Colors.deepCocoa, marginBottom: Spacing.xs, marginTop: Spacing.xs },
+  textInput: { backgroundColor: Colors.softCream, borderRadius: BorderRadius.md, padding: Spacing.md, fontSize: Typography.bodySmall, color: Colors.deepCocoa, marginBottom: Spacing.sm },
+  publishBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: Colors.matteClay,
+    borderRadius: BorderRadius.pill,
+    paddingVertical: Spacing.md,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.xl,
+  },
+  publishBtnText: { color: Colors.white, fontSize: Typography.body, fontWeight: Typography.bold },
 });

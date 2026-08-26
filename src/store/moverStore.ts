@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { Service } from '../lib/database.types';
 import { supabase } from '../lib/supabase';
 
 export interface MoverJob {
@@ -30,9 +31,13 @@ export interface MoverJob {
 
 interface MoverState {
   jobs: MoverJob[];
+  myServices: Service[];
   loading: boolean;
 
   fetchJobs: () => Promise<void>;
+  fetchMyServices: () => Promise<void>;
+  createService: (service: { name: string; description: string; price: number; image_url?: string | null }) => Promise<Service>;
+  updateService: (serviceId: string, updates: Partial<Pick<Service, 'name' | 'description' | 'price' | 'image_url' | 'availability'>>) => Promise<void>;
   acceptJob: (jobId: string) => Promise<void>;
   startGpsNavigation: (jobId: string) => Promise<void>;
   verifyCargoArrival: (jobId: string, checklist: { boxes_intact: boolean; furniture_unloaded: boolean; client_signoff: boolean }) => Promise<void>;
@@ -43,6 +48,7 @@ const initialJobs: MoverJob[] = [];
 
 export const useMoverStore = create<MoverState>((set, get) => ({
   jobs: initialJobs,
+  myServices: [],
   loading: false,
 
   fetchJobs: async () => {
@@ -90,6 +96,53 @@ export const useMoverStore = create<MoverState>((set, get) => ({
       } as MoverJob;
     }));
     set({ jobs, loading: false });
+  },
+
+  fetchMyServices: async () => {
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) {
+      set({ myServices: [] });
+      return;
+    }
+    const { data, error } = await supabase
+      .from('services')
+      .select('*')
+      .eq('provider_id', authData.user.id)
+      .eq('type', 'Mover')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    set({ myServices: (data || []) as Service[] });
+  },
+
+  createService: async (serviceData) => {
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) throw new Error('Sign in to create a moving service.');
+    const payload = {
+      provider_id: authData.user.id,
+      type: 'Mover' as const,
+      name: serviceData.name,
+      description: serviceData.description,
+      price: serviceData.price,
+      currency: 'KES',
+      image_url: serviceData.image_url || null,
+      availability: true,
+      rating: 0,
+    };
+    const { data, error } = await supabase.from('services').insert(payload).select().single();
+    if (error || !data) throw error || new Error('Service could not be saved.');
+    const newService = data as Service;
+    set((state) => ({ myServices: [newService, ...state.myServices] }));
+    return newService;
+  },
+
+  updateService: async (serviceId, updates) => {
+    const { error } = await supabase.from('services').update(updates).eq('id', serviceId);
+    if (error) throw error;
+    set((state) => ({
+      myServices: state.myServices.map((s) =>
+        s.id === serviceId ? { ...s, ...updates } : s
+      ),
+    }));
   },
 
   acceptJob: async (jobId) => {
